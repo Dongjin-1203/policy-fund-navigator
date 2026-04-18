@@ -12,11 +12,11 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-from dags.extractors.dart_extractor import extract_dart_task
-from dags.extractors.kipris_extractor import extract_kipris_task
-from dags.extractors.bizinfo_extractor import extract_bizinfo_task
-from dags.extractors.welfare_loader import load_welfare_task
-from dags.transformers.merge import merge_task
+from extractors.dart_extractor import extract_dart_task
+from extractors.kipris_extractor import extract_kipris_task
+from extractors.bizinfo_extractor import extract_bizinfo_task
+from extractors.welfare_loader import load_welfare_task
+from transformers.merge import merge_task
 
 default_args = {
     'owner': 'dongjin',
