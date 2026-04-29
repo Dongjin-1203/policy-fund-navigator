@@ -205,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# LLM parser output (large, regenerable)
+analysis_results.json
