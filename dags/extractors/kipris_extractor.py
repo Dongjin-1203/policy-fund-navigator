@@ -1,7 +1,9 @@
-"""KIPRIS API extractor — 특허/실용신안 수집 모듈.
+"""KIPRIS Open API extractor — 특허/실용신안 수집 모듈.
 
-KIPRIS_API_KEY가 설정되지 않은 경우 mock 데이터를 자동으로 반환한다.
-실제 API URL: http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch
+출원인명 기반으로 특허 목록(발명 명칭, IPC 코드, 요약, 출원일)을 수집한다.
+API: http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch
+인증: ServiceKey (KIPRIS Open API 키)
+--mock 플래그 또는 KIPRIS_API_KEY 미설정 시 mock 데이터로 자동 전환.
 """
 import json
 import logging
@@ -15,7 +17,7 @@ import requests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-KIPRIS_BASE_URL = 'http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch'
+KIPRIS_API_URL = 'http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch'
 
 MOCK_PATENTS = [
     {
@@ -87,48 +89,57 @@ def fetch_patents_mock(corp_name: str) -> list[dict]:
     return mock
 
 
-def fetch_patents_real(corp_name: str, api_key: str) -> list[dict]:
-    """실제 KIPRIS API 호출.
+def fetch_patents_real(corp_name: str, api_key: str, max_rows: int = 100) -> list[dict]:
+    """KIPRIS Open API 출원인명 검색으로 특허/실용신안 목록을 수집한다.
 
     Args:
-        corp_name: 기업명 (검색어)
-        api_key: KIPRIS API 키
+        corp_name: 출원인명 (기업명)
+        api_key: KIPRIS Open API accessToken
+        max_rows: 최대 수집 건수
 
     Returns:
-        특허 목록 딕셔너리 리스트
+        특허 목록 딕셔너리 리스트 (발명명칭, IPC코드, 요약, 출원일 포함)
     """
+    import xml.etree.ElementTree as ET
+
     params = {
         'word': corp_name,
         'ServiceKey': api_key,
-        'numOfRows': 100,
+        'numOfRows': max_rows,
         'pageNo': 1,
-        'patent': 'Y',
-        'utility': 'Y',
-        'sortSpec': 'AD',
-        'descSort': 'true',
     }
 
     last_exc = None
     for attempt in range(1, 4):
         try:
-            response = requests.get(KIPRIS_BASE_URL, params=params, timeout=30)
+            response = requests.get(KIPRIS_API_URL, params=params, timeout=30)
             response.raise_for_status()
             break
         except Exception as exc:
             last_exc = exc
-            logger.warning('KIPRIS API 요청 실패 (시도 %d/3): %s', attempt, exc)
+            logger.warning('KIPRIS API 요청 실패 (시도 %d/3) corp=%s: %s', attempt, corp_name, exc)
             if attempt < 3:
                 time.sleep(2 ** attempt)
     else:
-        raise RuntimeError('KIPRIS API 최대 재시도 횟수 초과') from last_exc
+        logger.error('KIPRIS API 최대 재시도 초과: corp=%s', corp_name)
+        raise RuntimeError(f'KIPRIS API 최대 재시도 횟수 초과 (corp={corp_name})') from last_exc
 
-    # XML 응답 파싱
-    import xml.etree.ElementTree as ET
-    root = ET.fromstring(response.text)
+    try:
+        root = ET.fromstring(response.text)
+    except ET.ParseError as exc:
+        logger.error('KIPRIS XML 파싱 실패 corp=%s: %s\n응답: %s', corp_name, exc, response.text[:300])
+        raise
+
+    # 에러 코드 확인
+    result_code_el = root.find('.//resultCode')
+    if result_code_el is not None and result_code_el.text not in ('00', '0'):
+        result_msg = (root.findtext('.//resultMsg') or '').strip()
+        logger.error('KIPRIS API 오류 응답 corp=%s: code=%s msg=%s', corp_name, result_code_el.text, result_msg)
+        return []
 
     patents = []
     for item in root.iter('item'):
-        def _text(tag: str):
+        def _text(tag: str) -> str | None:
             el = item.find(tag)
             return el.text.strip() if el is not None and el.text else None
 
@@ -147,8 +158,10 @@ def fetch_patents_real(corp_name: str, api_key: str) -> list[dict]:
     return patents
 
 
-def fetch_patents(corp_name: str) -> list[dict]:
-    """API 키 유무에 따라 실제 API 또는 mock 데이터로 자동 분기."""
+def fetch_patents(corp_name: str, mock: bool = False) -> list[dict]:
+    """API 키 유무 또는 mock 플래그에 따라 실제 API 또는 mock 데이터로 자동 분기."""
+    if mock:
+        return fetch_patents_mock(corp_name)
     api_key = os.environ.get('KIPRIS_API_KEY', '').strip()
     if api_key:
         return fetch_patents_real(corp_name, api_key)
@@ -164,11 +177,12 @@ def upload_to_s3(data: dict | list, bucket: str, key: str) -> None:
     logger.info('S3 업로드 완료: s3://%s/%s', bucket, key)
 
 
-def run_extraction(corp_names: list[str] | None = None) -> None:
+def run_extraction(corp_names: list[str] | None = None, mock: bool = False) -> None:
     """메인 실행 함수.
 
     Args:
         corp_names: 수집할 기업명 목록. None이면 샘플 기업 사용.
+        mock: True이면 실제 API 호출 없이 mock 데이터 반환.
     """
     bucket = os.environ.get('S3_BUCKET_NAME')
     if not bucket:
@@ -183,7 +197,7 @@ def run_extraction(corp_names: list[str] | None = None) -> None:
     success, failure = 0, 0
     for corp_name in corp_names:
         try:
-            patents = fetch_patents(corp_name)
+            patents = fetch_patents(corp_name, mock=mock)
             record = {
                 'corp_name': corp_name,
                 'date': date_str,
@@ -208,4 +222,8 @@ def extract_kipris_task(**context) -> None:
 
 
 if __name__ == '__main__':
-    run_extraction()
+    import argparse
+    parser = argparse.ArgumentParser(description='KIPRIS 특허/실용신안 수집기')
+    parser.add_argument('--mock', action='store_true', help='mock 모드 (실제 API 호출 없이 구조 검증)')
+    args = parser.parse_args()
+    run_extraction(mock=args.mock)
