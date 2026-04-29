@@ -1,7 +1,7 @@
-# PRD — 중진공 AI 중기(中企) 자금 네비게이터
+# PRD — 중진공 AI 자금 네비게이터
 **policy-fund-navigator**
-버전: 0.3 (초안)
-작성일: 2026-04-25
+버전: 0.4 (초안)
+작성일: 2026-04-29
 작성자: 지동진
 상태: 검토 중
 
@@ -16,7 +16,7 @@
 ### 1.2 서비스 목표
 
 - 사업자번호 입력만으로 신청 가능한 정책자금 Top-N 자동 추천
-- 과거 수혜 데이터 기반 수혜 확률(%) 제공
+- 룰 기반 스코어링을 통한 자금 적합도 점수 제공
 - XAI(설명 가능한 AI) 기반 매칭 이유 및 개선 가이드 제시
 
 ### 1.3 타겟 사용자
@@ -42,24 +42,24 @@
 
 - Hard Filter: 업종·부채비율·업력·소재지 자격 조건 자동 체크
 - Soft Filter: 특허·기술력과 사업 공고문 간 의미적 유사도 매칭
-- LightGBM LambdaRank 기반 수혜 확률 순위 산출
+- 룰 기반 스코어링 기반 적합도 순위 산출
 - 결과: 적격 사업 목록 + 잠정 적격 사업 목록 분리 출력
 
 ### 2.3 XAI 기반 컨설팅 리포트
 
 > **XAI(Explainable AI)**: AI 모델이 왜 이런 결과를 냈는지 사람이 이해할 수 있는
-> 언어로 설명하는 기술. 본 서비스에서는 SHAP 기법으로 각 feature의 점수 기여도를
-> 추출하고 자연어 개선 가이드를 생성한다.
+> 언어로 설명하는 기술. 본 서비스에서는 각 feature의 가중치 기여도를 직접 계산하여
+> 자연어 개선 가이드를 생성한다.
 
-- 매칭 이유 설명: feature별 기여도(SHAP) 기반 자연어 설명
+- 매칭 이유 설명: feature별 가중치 기여도 기반 자연어 설명
 - 개선 가이드: delta 분석 기반 "X만 보완하면 가능" 피드백
-- 수혜 확률 변화 시뮬레이션: 지표 개선 시 확률 변화 제시
+- 수혜 확률 변화 시뮬레이션: 지표 개선 시 점수 변화 제시
 
 ### 2.4 사후 관리
 
 > **[확인 필요]** 아래 기능의 구현 여부를 결정해주세요.
 > - 관심 사업 저장 및 마감 알림 기능
-> - 보완 지표 업데이트 시 수혜 확률 실시간 변화 알림
+> - 보완 지표 업데이트 시 점수 실시간 변화 알림
 
 ---
 
@@ -69,17 +69,24 @@
 
 | 구분 | 소스 | 수집 방법 | 상태 |
 |---|---|---|---|
-| 기업 재무·기본정보 | OpenDART | API | 키 발급 완료 |
-| 특허·실용신안 | KIPRIS | API | 승인 대기 중 |
-| 사업 공고 목록 | 기업마당(bizinfo) | API | 키 발급 완료 |
-| 공고문 원본 | 중진공 홈페이지 | 크롤러 | 구현 예정 |
-| 과거 수혜 이력 | 정보공개포털 | CSV | 청구 완료 |
+| 기업 재무·기본정보 | OpenDART | API | 완료 |
+| 특허·실용신안 | KIPRIS | API | 완료 |
+| 사업 공고 목록 | 기업마당(bizinfo) | API | 완료 |
+| 공고문 원본 | 중진공 홈페이지 | 크롤러 | 완료 |
+| 과거 수혜 이력 | 정보공개포털 | CSV | **비공개 처분** |
 | 신용등급·인증 | KODATA | 샘플 데이터 | 커버리지 제한 |
+
+> **[수혜이력 비공개 처분 관련]**
+> 중진공 정책자금 수혜이력 데이터가 「공공기관의 정보공개에 관한 법률」
+> 제9조제1항 제7호(경영·영업상 비밀)를 근거로 비공개 처분되었습니다.
+> 이에 따라 학습 기반 스코어링 대신 룰 기반 스코어링으로 설계를 변경하며,
+> 추후 실데이터 확보 시 LightGBM/GNN 기반으로 고도화할 예정입니다.
+> 이의신청을 통한 익명 통계 데이터 재청구를 병행 진행합니다.
 
 ### 3.2 데이터 스키마
 
-![alt text](data_schema.png)
-데이터 스키마 다이어그램 (company_features / program_features / labels JOIN 구조)
+![alt text](data-schema.png)
+data_schema.svg — 데이터 스키마 다이어그램
 
 #### 기업 feature (company_features.parquet)
 
@@ -116,22 +123,13 @@
 | debt_ratio_limit | 부채비율 상한 (LLM 파서) |
 | requirements | 기타 자격요건 (LLM 파서) |
 
-#### 레이블 (labels.parquet)
-
-| 필드 | 설명 |
-|---|---|
-| company_id | 사업자등록번호 (FK → company_features) |
-| program_id | 사업공고 ID (FK → program_features) |
-| selected | 선정여부 (1: 선정, 0: 미선정) |
-| year | 수혜 연도 |
+> **[변경]** 수혜이력 비공개 처분으로 labels.parquet은 현재 생성하지 않습니다.
+> 추후 실데이터 확보 시 추가 예정입니다.
 
 ### 3.3 수혜 이력 데이터
 
-> **[확인 필요]** 정보공개포털에서 수신한 수혜 이력 CSV의 실제 컬럼 구조를 기입해주세요.
-> - 사업자번호 컬럼 존재 여부
-> - 선정/미선정 구분 컬럼 존재 여부
-> - 커버 연도 범위
-> - 총 레코드 수 (대략적으로)
+> **[비공개 처분]** 정보공개포털 청구 결과 비공개 처분되었습니다.
+> 추후 이의신청 또는 익명 통계 데이터 재청구를 통해 확보 예정입니다.
 
 ---
 
@@ -139,17 +137,17 @@
 
 ### 4.1 전체 흐름
 
-![alt text](data_pipeline_architecture.png)
-데이터 파이프라인 전체 흐름도
+![alt text](data_pipeline_architecture.png)data_pipeline_architecture.png — 데이터 파이프라인 전체 흐름도
 
 - 기업 데이터 소스 (OpenDART·KIPRIS·KODATA·공공데이터포털) → API 수집기 → 기업 feature
 - 공고문 소스 (기업마당·중진공 홈페이지) → 크롤러 + LLM 파서 → 사업 feature + 자격요건 DB
-- 수혜 이력 (정보공개포털) → welfare_loader → labels.parquet
 - 전체 → S3 processed/ Master DataFrame → 학습 데이터셋 · 자격요건 DB · 임베딩 저장소
+
+> **[변경]** 수혜이력 → welfare_loader → labels.parquet 흐름은 현재 제외됩니다.
 
 ### 4.2 Airflow DAG 구조
 
-- extract_dart · extract_kipris · extract_bizinfo (병렬) → transform_merge → load_to_s3 → welfare_loader
+- extract_dart · extract_kipris · extract_bizinfo (병렬) → transform_merge → load_to_s3
 - 스케줄: @weekly
 - 환경: Apache Airflow 2.9 + Docker Compose
 - 스토리지: AWS S3
@@ -161,31 +159,37 @@
 ### 5.1 AI 파이프라인 전체 흐름
 
 ![alt text](mas_agent_architecture.png)
-LangGraph MAS 에이전트 아키텍처
+mas_agent_architecture.png — LangGraph MAS 에이전트 아키텍처
 
 - 오케스트레이터 → 임베딩 에이전트 → 스코어링 에이전트 → SHAP 에이전트 → 오케스트레이터 (복귀)
 - 후보 없을 경우 임베딩 에이전트에서 오케스트레이터로 조기 복귀 (조건부 엣지)
 - 오케스트레이터가 피드백 생성 및 최종 응답 조합 후 FastAPI로 전달
 
-### 5.2 스코어링 수식
+### 5.2 스코어링 방식
 
 ```
-P(Selection) = α·F + β·T + γ·G
+P = α·F + β·T + γ·G
 ```
 
-- F: 재무 점수 (부채비율, 매출성장률, 현금흐름 등)
-- T: 기술 점수 (특허수, 출원일, IPC 코드 등)
-- G: 정책 가점 (벤처인증, 이노비즈, 고용창출 등)
-- α, β, γ: LightGBM LambdaRank 학습 과정에서 NDCG 최적화를 통해 자동 결정
+- F: 재무 점수 (부채비율, 매출성장률, 현금흐름 등 정규화)
+- T: 기술 점수 (특허수, IPC 코드 일치, 출원일 등)
+- G: 정책 가점 (벤처인증, 이노비즈, 청년고용 등)
+- α, β, γ: 도메인 전문가 설정 고정값 (초기값 α=0.4, β=0.3, γ=0.3)
 
-> **NDCG(Normalized Discounted Cumulative Gain)**: 랭킹 모델 성능 평가 지표.
-> 실제 선정된 사업이 추천 상위권에 올수록 점수가 높아짐 (1에 가까울수록 우수).
-> NDCG@5는 상위 5개, NDCG@10은 상위 10개 기준으로 평가.
+> **[변경]** 수혜이력 데이터 비공개 처분으로 LightGBM LambdaRank 학습 방식에서
+> 룰 기반 스코어링으로 변경합니다.
+>
+> **고도화 계획**: 실데이터 확보 시 아래 순서로 고도화 예정
+> 1. LightGBM LambdaRank — labels.parquet 기반 NDCG 최적화
+> 2. GNN — 기업·사업 노드 + 수혜이력 엣지 기반 그래프 학습
 
 ### 5.3 XAI 기준
 
-- SHAP TreeExplainer 적용
-- feature 기여도 상위 3개 항목 선별
+> **[변경]** SHAP TreeExplainer → 가중치 기여도 직접 계산 방식으로 변경합니다.
+> 룰 기반 스코어링이므로 각 feature의 기여도를 수식에서 직접 산출합니다.
+
+- feature별 가중치 기여도 직접 계산 (α·F, β·T, γ·G 분해)
+- 기여도 상위 3개 항목 선별
 - delta 10% 이내 항목에만 "보완 가능" 피드백 생성
 - 음수 기여(감점) 항목 우선 선별
 
@@ -201,30 +205,30 @@ P(Selection) = α·F + β·T + γ·G
 - Skills: S3 데이터 로드, 하이브리드 임베딩 생성, Hard Filter 실행, Soft Filter 실행, State 업데이트
 
 #### 스코어링 에이전트
-- system_prompt: 역할·스코어링 수식·MLflow 로드 방식 정의
-- Skills (ML을 Tool로 정의): feature 엔지니어링 Tool, MLflow 모델 로드 Tool, LambdaRank 추론 Tool, Top-N 정렬 Tool, State 업데이트
+- system_prompt: 역할·스코어링 수식·가중치 설정 정의
+- Skills (룰 기반 Tool로 정의): feature 엔지니어링 Tool, 재무점수 계산 Tool, 기술점수 계산 Tool, 정책가점 계산 Tool, Top-N 정렬 Tool, State 업데이트
 
 #### SHAP 에이전트
 - system_prompt: 역할·delta 기준·feature 선별 규칙 정의
-- Skills: SHAP TreeExplainer 실행 Tool, feature 기여도 추출 Tool, 임계치 delta 계산 Tool, 보완 가능 플래그 설정 Tool, State 업데이트
+- Skills: 가중치 기여도 계산 Tool, feature 기여도 추출 Tool, 임계치 delta 계산 Tool, 보완 가능 플래그 설정 Tool, State 업데이트
 
 ---
 
 ## 6. 기술 스택
 
-| 레이어 | 기술 |
-|---|---|
-| ETL 오케스트레이션 | Apache Airflow 2.9 + Docker Compose |
-| 스토리지 | AWS S3 |
-| 데이터 처리 | pandas, pyarrow |
-| 임베딩 | ko-sentence-transformers |
-| ML 모델 | LightGBM (LambdaRank) — 학습 데이터셋(labels.parquet) 기반 수혜 확률 순위 학습 |
-| 실험 관리 | MLflow (Experiment Tracking + Model Registry) |
-| XAI | SHAP |
-| MAS 프레임워크 | LangGraph |
-| LLM API | Gemini API |
-| API 서버 | FastAPI |
-| 크롤링 | BeautifulSoup4, Selenium |
+| 레이어 | 기술 | 비고 |
+|---|---|---|
+| ETL 오케스트레이션 | Apache Airflow 2.9 + Docker Compose | |
+| 스토리지 | AWS S3 | |
+| 데이터 처리 | pandas, pyarrow | |
+| 임베딩 | ko-sentence-transformers | |
+| 스코어링 | 룰 기반 (α·F + β·T + γ·G) | 실데이터 확보 시 LightGBM 전환 예정 |
+| 실험 관리 | MLflow | 스코어링 파라미터 버전 관리 용도 |
+| XAI | 가중치 기여도 직접 계산 | 실데이터 확보 시 SHAP 전환 예정 |
+| MAS 프레임워크 | LangGraph | |
+| LLM API | Gemini API | |
+| API 서버 | FastAPI | |
+| 크롤링 | BeautifulSoup4, requests | JS 렌더링 불필요 확인 |
 
 ---
 
@@ -238,11 +242,11 @@ s3://[BUCKET_NAME]/
 │   ├── dart/YYYY-MM-DD/
 │   ├── kipris/YYYY-MM-DD/
 │   ├── bizinfo/YYYY-MM-DD/
-│   └── welfare/
+│   └── announcements/YYYY-MM-DD/   ← 크롤러 수집 공고문
 ├── processed/
 │   ├── company_features.parquet
 │   ├── program_features.parquet
-│   └── labels.parquet            ← LightGBM LambdaRank 학습에 사용
+│   └── labels.parquet              ← 실데이터 확보 시 추가 예정
 └── embeddings/
     ├── announcements/
     └── requirements_db/
@@ -265,7 +269,7 @@ s3://[BUCKET_NAME]/
 |---|---|---|
 | 응답 시간 | [확인 필요] | 매칭 API 기준 |
 | 동시 사용자 | [확인 필요] | 대회 데모 기준 |
-| 모델 성능 | NDCG@5, NDCG@10 | 수치는 학습 후 기입 |
+| 모델 성능 | 적합도 점수 정확도 | 룰 기반 기준, 실데이터 확보 시 NDCG 추가 |
 | 데이터 갱신 주기 | 주 1회 (@weekly) | Airflow 기준 |
 
 ---
@@ -274,12 +278,12 @@ s3://[BUCKET_NAME]/
 
 | 항목 | 내용 | 대응 |
 |---|---|---|
-| KIPRIS API | 승인 대기 중 | mock 데이터로 우선 구현 |
+| 수혜이력 비공개 | 정보공개 비공개 처분 | 룰 기반 스코어링으로 변경, 이의신청 병행 |
 | KODATA 신용등급 | 샘플 수준, 커버리지 낮음 | 재무지표로 proxy 처리 |
-| 수혜 이력 레이블 | 컬럼 구조 미확인 | CSV 수신 후 구조 확인 필요 |
-| GNN 적용 | 엣지 데이터 부족 가능성 | LightGBM 베이스라인 우선, GNN은 확장 아키텍처로 |
-| HWP 파싱 | 파이썬 생태계 불안정 | 별도 POC 필요 |
-| 클래스 불균형 | 선정 기업 비율 낮음 | scale_pos_weight 또는 PU Learning 적용 |
+| GNN 적용 | 수혜이력 없어 엣지 데이터 없음 | 실데이터 확보 시 확장 아키텍처로 |
+| HWP 파싱 | pdfplumber 미지원 | Gemini API 직접 바이너리 전송으로 대응 |
+| 클래스 불균형 | 실데이터 없어 해당 없음 | 실데이터 확보 시 재검토 |
+| S3 경로 공백 | 공고문 파일명 공백·괄호 포함 | LLM 파서 URL 인코딩 처리 필요, 팀원 협의 |
 
 ---
 
@@ -287,17 +291,12 @@ s3://[BUCKET_NAME]/
 
 | 역할 | 담당자 | 담당 영역 |
 |---|---|---|
-| AI 엔지니어 · 데이터 엔지니어 | 지동진 | ETL 파이프라인, 크롤러, 자격요건 DB 구축, MAS 구현, FastAPI 서버, 프론트엔드 UI |
-| AI 엔지니어 | 박지윤 | LLM 파서 (공고문 → 자격요건 구조화) |
+| AI 엔지니어 · 데이터 엔지니어 | 지동진 | ETL 파이프라인, 크롤러, 자격요건 DB 구축, MAS 구현 (State 스키마·오케스트레이터·스코어링·SHAP 에이전트·LangGraph 연결), FastAPI 서버, 프론트엔드 UI |
+| AI 엔지니어 | 박지윤 | LLM 파서 (공고문 → 자격요건 구조화), 임베딩 에이전트 설계, 피드백 템플릿 DB 구축 |
 
 ### 미정 과업 (팀원과 논의 후 확정 필요)
 
-- 임베딩 에이전트 구현 담당
-- 스코어링 에이전트 구현 담당 (LightGBM 학습 포함)
-- SHAP 에이전트 구현 담당
-- 피드백 템플릿 DB 구축 담당
 - MLflow 실험 관리 환경 구축 담당
-- 사후 관리 기능 구현 여부 및 담당
 - 모델 성능 평가 및 검증 담당
 - 발표 자료 제작 담당
 
@@ -315,7 +314,7 @@ s3://[BUCKET_NAME]/
 |---|---|---|
 | 1 | 대회 평가 기준 | 세부 평가 지표 확인 필요 |
 | 2 | 제출 형태 | 서비스 소개서/개발 기술서/시연 영상 등 확인 필요 |
-| 3 | 사후 관리 기능 | 알림·실시간 확률 변화 기능 구현 여부 결정 필요 |
-| 4 | 수혜 이력 CSV 구조 | 사업자번호·선정여부 컬럼 존재 여부, 연도 범위, 레코드 수 확인 필요 |
-| 5 | 비기능 요구사항 수치 | 응답 시간, 동시 사용자 목표 수치 결정 필요 |
-| 6 | 추가 API 엔드포인트 | /match, /feedback 외 필요 엔드포인트 확인 필요 |
+| 3 | 사후 관리 기능 | 알림·실시간 점수 변화 기능 구현 여부 결정 필요 |
+| 4 | 비기능 요구사항 수치 | 응답 시간, 동시 사용자 목표 수치 결정 필요 |
+| 5 | 추가 API 엔드포인트 | /match, /feedback 외 필요 엔드포인트 확인 필요 |
+| 6 | 수혜이력 이의신청 | 익명 통계 데이터 재청구 결과에 따라 스코어링 방식 재검토 |
