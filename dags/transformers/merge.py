@@ -290,5 +290,243 @@ def merge_task(**context) -> None:
     run_merge(date_str=date_str)
 
 
+# ---------------------------------------------------------------------------
+# ProgramFeatureMerger — 크롤러 metadata + LLM 파서 requirements_db JOIN
+# ---------------------------------------------------------------------------
+
+_PROGRAM_FEATURE_COLUMNS = [
+    'program_id', 'program_name', 'category', 'max_support',
+    'interest_rate', 'apply_start', 'apply_end',
+    'industry_limit', 'debt_ratio_limit', 'requirements', 'source_date',
+]
+
+_MOCK_METADATA = [
+    {
+        'slno': '999',
+        'title': '[mock] 2026년도 정책자금 융자사업 연간추진계획',
+        'filename': 'mock_2026_policy_fund.hwp',
+        'date': '20260429',
+        'collected_at': '2026-04-29T00:00:00',
+        'gubun': 'WE17',
+    },
+    {
+        'slno': '998',
+        'title': '[mock] JOIN 실패 케이스',
+        'filename': 'no_parser_output.hwp',
+        'date': '20260429',
+        'collected_at': '2026-04-29T00:00:00',
+        'gubun': 'WE17',
+    },
+]
+
+_MOCK_REQUIREMENTS_MAP = {
+    'mock_2026_policy_fund': {
+        'source_file': 'mock_2026_policy_fund.hwp',
+        'announcement_title': '[mock] 2026년도 정책자금 융자사업 연간추진계획',
+        'programs': [
+            {
+                'sub_title': '[mock] 시설자금',
+                'program_category': '금융',
+                'industry_limit': ['불건전 영상게임기 제조업', '주점업'],
+                'requirements': ['업력 7년 미만', '상시 근로자 5인 이상'],
+                'max_support': 1000000000,
+                'interest_rate': '연 2.9%',
+                'apply_start': '2026-01-01',
+                'apply_end': '2026-12-31',
+                'debt_ratio_limit': 500,
+            },
+        ],
+    }
+}
+
+
+class ProgramFeatureMerger:
+    """크롤러 metadata와 LLM 파서 requirements_db를 filename 기준 LEFT JOIN하여
+    program_features.parquet 생성.
+
+    run() 호출 시:
+      1. S3 raw/announcements/*/metadata.json 전체 로드
+      2. S3 embeddings/requirements_db/*/*.json 전체 로드
+      3. filename 기준 LEFT JOIN (실패 시 requirements 필드 None, logging.warning)
+      4. programs 배열 explode → 1행 per program
+      5. processed/program_features.parquet 로 저장
+    """
+
+    def __init__(self, mock: bool = False):
+        self.mock = mock
+        self._s3 = None
+        self._bucket = None
+
+    def _init_s3(self) -> None:
+        if self._s3 is None:
+            self._s3 = _get_s3_client()
+            self._bucket = os.environ.get('S3_BUCKET_NAME')
+            if not self._bucket:
+                raise ValueError('S3_BUCKET_NAME 환경변수가 설정되지 않았습니다.')
+
+    def _load_all_metadata(self) -> list[dict]:
+        """S3 raw/announcements/*/metadata.json 모두 로드."""
+        paginator = self._s3.get_paginator('list_objects_v2')
+        all_items: list[dict] = []
+        for page in paginator.paginate(Bucket=self._bucket, Prefix='raw/announcements/'):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if not key.endswith('/metadata.json'):
+                    continue
+                try:
+                    resp = self._s3.get_object(Bucket=self._bucket, Key=key)
+                    items: list[dict] = json.loads(resp['Body'].read().decode('utf-8'))
+                    all_items.extend(items)
+                    logger.info('메타데이터 로드: %s (%d건)', key, len(items))
+                except Exception as exc:
+                    logger.warning('메타데이터 로드 실패 key=%s: %s', key, exc)
+        logger.info('전체 메타데이터 로드 완료: %d건', len(all_items))
+        return all_items
+
+    def _load_all_requirements(self) -> dict[str, dict]:
+        """S3 embeddings/requirements_db/*/*.json 모두 로드.
+
+        Returns:
+            {source_file_stem: parsed_result} 딕셔너리
+        """
+        paginator = self._s3.get_paginator('list_objects_v2')
+        req_map: dict[str, dict] = {}
+        for page in paginator.paginate(Bucket=self._bucket, Prefix='embeddings/requirements_db/'):
+            for obj in page.get('Contents', []):
+                key = obj['Key']
+                if not key.endswith('.json'):
+                    continue
+                try:
+                    resp = self._s3.get_object(Bucket=self._bucket, Key=key)
+                    data: dict = json.loads(resp['Body'].read().decode('utf-8'))
+                    source_file = data.get('source_file', '')
+                    stem = os.path.splitext(source_file)[0]
+                    if stem:
+                        req_map[stem] = data
+                except Exception as exc:
+                    logger.warning('requirements_db 로드 실패 key=%s: %s', key, exc)
+        logger.info('requirements_db 로드 완료: %d건', len(req_map))
+        return req_map
+
+    def _to_str(self, value) -> str | None:
+        """list는 JSON 문자열로, 나머지는 str 변환. None/빈값은 None 유지."""
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value) if value != '' else None
+
+    def _build_rows(
+        self,
+        metadata: list[dict],
+        req_map: dict[str, dict],
+    ) -> tuple[list[dict], int, int]:
+        """metadata와 requirements_db를 JOIN하여 출력 행 생성.
+
+        Returns:
+            (rows, join_ok_count, join_fail_count)
+        """
+        rows: list[dict] = []
+        join_ok = join_fail = 0
+
+        for item in metadata:
+            slno = item.get('slno', '')
+            filename = item.get('filename', '')
+            title = item.get('title', '')
+            collected_at = item.get('collected_at', '') or ''
+            source_date = collected_at[:10] if collected_at else ''
+
+            stem = os.path.splitext(filename)[0]
+            req_data = req_map.get(stem)
+
+            if req_data is None:
+                logger.warning(
+                    'JOIN 실패 — requirements_db 없음: filename=%s (slno=%s)',
+                    filename, slno,
+                )
+                join_fail += 1
+                rows.append({col: None for col in _PROGRAM_FEATURE_COLUMNS} | {
+                    'program_id': slno,
+                    'program_name': title,
+                    'source_date': source_date,
+                })
+                continue
+
+            join_ok += 1
+            programs: list[dict] = req_data.get('programs') or [{}]
+            multi = len(programs) > 1
+
+            for i, prog in enumerate(programs):
+                pid = f'{slno}_{i + 1}' if multi else slno
+                rows.append({
+                    'program_id': pid,
+                    'program_name': prog.get('sub_title') or title,
+                    'category': prog.get('program_category'),
+                    'max_support': self._to_str(prog.get('max_support')),
+                    'interest_rate': self._to_str(prog.get('interest_rate')),
+                    'apply_start': prog.get('apply_start'),
+                    'apply_end': prog.get('apply_end'),
+                    'industry_limit': self._to_str(prog.get('industry_limit')),
+                    'debt_ratio_limit': self._to_str(prog.get('debt_ratio_limit')),
+                    'requirements': self._to_str(prog.get('requirements')),
+                    'source_date': source_date,
+                })
+
+        return rows, join_ok, join_fail
+
+    def run(self) -> pd.DataFrame:
+        """메인 실행.
+
+        Returns:
+            생성된 program_features DataFrame.
+        """
+        if self.mock:
+            logger.info('[MOCK] ProgramFeatureMerger 실행 (S3 접근 없음)')
+            metadata = _MOCK_METADATA
+            req_map = _MOCK_REQUIREMENTS_MAP
+        else:
+            self._init_s3()
+            metadata = self._load_all_metadata()
+            req_map = self._load_all_requirements()
+
+        if not metadata:
+            logger.warning('metadata가 비어 있습니다. 처리 대상 없음.')
+            return pd.DataFrame(columns=_PROGRAM_FEATURE_COLUMNS)
+
+        rows, join_ok, join_fail = self._build_rows(metadata, req_map)
+
+        df = pd.DataFrame(rows, columns=_PROGRAM_FEATURE_COLUMNS)
+
+        logger.info(
+            '수집 통계 — 전체 공고수: %d, JOIN 성공: %d, JOIN 실패: %d',
+            len(metadata), join_ok, join_fail,
+        )
+
+        if not self.mock:
+            save_features(df, self._bucket, 'processed/program_features.parquet')
+
+        return df
+
+
+def merge_program_features_task(**context) -> None:
+    """Airflow PythonOperator에서 호출 가능한 callable."""
+    ProgramFeatureMerger().run()
+
+
 if __name__ == '__main__':
-    run_merge()
+    import argparse
+    parser = argparse.ArgumentParser(description='S3 데이터 병합')
+    parser.add_argument('--mock', action='store_true', help='mock 모드 (S3 접근 없이 구조 검증)')
+    parser.add_argument('--program-features', action='store_true', help='ProgramFeatureMerger만 실행')
+    args = parser.parse_args()
+
+    if args.program_features:
+        merger = ProgramFeatureMerger(mock=args.mock)
+        df = merger.run()
+        if args.mock:
+            print('\n[DataFrame 컬럼 구조]')
+            print(df.dtypes.to_string())
+            print(f'\n[행 수] {len(df)}')
+            print(df.to_string())
+    else:
+        run_merge()
