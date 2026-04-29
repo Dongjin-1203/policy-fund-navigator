@@ -208,3 +208,6 @@ __marimo__/
 
 # Dev logs
 docs/devlog/
+
+# LLM parser output (large, regenerable)
+analysis_results.json
