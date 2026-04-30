@@ -142,9 +142,11 @@ def fetch_programs(lclass_id: str | None = None, search_cnt: int = 500) -> list[
         logger.info('bizinfo XML 응답 파싱 완료: %d건 (lclass=%s)', len(items), lclass_id)
         return items
 
-    # JSON 응답: 응답 구조가 {'result': [...]} 또는 {'response': {'body': {'items': [...]}}}
+    # JSON 응답: 실제 API는 {'jsonArray': [...]} 구조 반환
+    # fallback: 구버전 래핑 형식도 허용
     raw_items = (
-        data.get('result')
+        data.get('jsonArray')
+        or data.get('result')
         or data.get('response', {}).get('body', {}).get('items', {}).get('item', [])
         or []
     )
