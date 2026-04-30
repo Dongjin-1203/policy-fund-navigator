@@ -260,9 +260,16 @@ if __name__ == "__main__":
                 "categories": program_categories
             })
 
-            result['source_file'] = os.path.basename(file_path)
+            # {slno}_{filename} 형식에서 slno 추출
+            basename = os.path.basename(file_path)
+            underscore_idx = basename.find('_')
+            if underscore_idx > 0 and basename[:underscore_idx].isdigit():
+                slno = basename[:underscore_idx]
+            else:
+                slno = os.path.splitext(basename)[0]
+            result['source_file'] = slno
             final_results.append(result)
-            logging.info("완료: %s", result['source_file'])
+            logging.info("완료: slno=%s", slno)
 
         except Exception as e:
             logging.error("%s 처리 중 오류 발생: %s", file_path, e)

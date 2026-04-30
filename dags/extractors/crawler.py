@@ -309,13 +309,15 @@ class KosmesAnnouncementCrawler:
         token = announcement['token']
         title = announcement['title']
         slno = announcement.get('slno', '')
-        s3_key = f'raw/announcements/{self.date_str}/{filename}'
+        # slno를 접두사로 붙여 JOIN 키를 파일명에 고정
+        saved_filename = f'{slno}_{filename}' if slno else filename
+        s3_key = f'raw/announcements/{self.date_str}/{saved_filename}'
 
         if _s3_key_exists(self._s3, self._bucket, s3_key):
             logger.info('스킵 (이미 수집됨): %s', s3_key)
             return {
                 'title': title,
-                'filename': filename,
+                'filename': saved_filename,
                 'slno': slno,
                 'token': token,
                 'date': announcement['date'],
@@ -326,10 +328,10 @@ class KosmesAnnouncementCrawler:
             }
 
         if self.mock:
-            logger.info('[MOCK] 다운로드 스킵: %s', filename)
+            logger.info('[MOCK] 다운로드 스킵: %s', saved_filename)
             return {
                 'title': title,
-                'filename': filename,
+                'filename': saved_filename,
                 'slno': slno,
                 'token': token,
                 'date': announcement['date'],
@@ -367,7 +369,7 @@ class KosmesAnnouncementCrawler:
 
             return {
                 'title': title,
-                'filename': filename,
+                'filename': saved_filename,
                 'slno': slno,
                 'token': token,
                 'date': announcement['date'],

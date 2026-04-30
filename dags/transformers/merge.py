@@ -304,7 +304,7 @@ _MOCK_METADATA = [
     {
         'slno': '999',
         'title': '[mock] 2026년도 정책자금 융자사업 연간추진계획',
-        'filename': 'mock_2026_policy_fund.hwp',
+        'filename': '999_mock_2026_policy_fund.hwp',
         'date': '20260429',
         'collected_at': '2026-04-29T00:00:00',
         'gubun': 'WE17',
@@ -312,16 +312,17 @@ _MOCK_METADATA = [
     {
         'slno': '998',
         'title': '[mock] JOIN 실패 케이스',
-        'filename': 'no_parser_output.hwp',
+        'filename': '998_no_parser_output.hwp',
         'date': '20260429',
         'collected_at': '2026-04-29T00:00:00',
         'gubun': 'WE17',
     },
 ]
 
+# requirements_db 키: slno 문자열 (파일명 stem이 아닌 slno 직접 사용)
 _MOCK_REQUIREMENTS_MAP = {
-    'mock_2026_policy_fund': {
-        'source_file': 'mock_2026_policy_fund.hwp',
+    '999': {
+        'source_file': '999',
         'announcement_title': '[mock] 2026년도 정책자금 융자사업 연간추진계획',
         'programs': [
             {
@@ -387,7 +388,7 @@ class ProgramFeatureMerger:
         """S3 embeddings/requirements_db/*/*.json 모두 로드.
 
         Returns:
-            {source_file_stem: parsed_result} 딕셔너리
+            {slno: parsed_result} 딕셔너리 — S3 파일명 stem이 slno
         """
         paginator = self._s3.get_paginator('list_objects_v2')
         req_map: dict[str, dict] = {}
@@ -399,10 +400,10 @@ class ProgramFeatureMerger:
                 try:
                     resp = self._s3.get_object(Bucket=self._bucket, Key=key)
                     data: dict = json.loads(resp['Body'].read().decode('utf-8'))
-                    source_file = data.get('source_file', '')
-                    stem = os.path.splitext(source_file)[0]
-                    if stem:
-                        req_map[stem] = data
+                    # S3 키 파일명 stem이 slno: embeddings/requirements_db/{date}/{slno}.json
+                    slno_key = key.split('/')[-1].rsplit('.', 1)[0]
+                    if slno_key:
+                        req_map[slno_key] = data
                 except Exception as exc:
                     logger.warning('requirements_db 로드 실패 key=%s: %s', key, exc)
         logger.info('requirements_db 로드 완료: %d건', len(req_map))
@@ -436,13 +437,13 @@ class ProgramFeatureMerger:
             collected_at = item.get('collected_at', '') or ''
             source_date = collected_at[:10] if collected_at else ''
 
-            stem = os.path.splitext(filename)[0]
-            req_data = req_map.get(stem)
+            # slno를 직접 JOIN 키로 사용 (파일명 stem 비교 제거)
+            req_data = req_map.get(slno)
 
             if req_data is None:
                 logger.warning(
-                    'JOIN 실패 — requirements_db 없음: filename=%s (slno=%s)',
-                    filename, slno,
+                    'JOIN 실패 — requirements_db 없음: slno=%s (filename=%s)',
+                    slno, filename,
                 )
                 join_fail += 1
                 rows.append({col: None for col in _PROGRAM_FEATURE_COLUMNS} | {
