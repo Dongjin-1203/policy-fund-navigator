@@ -4,7 +4,7 @@
 ![Airflow](https://img.shields.io/badge/Apache%20Airflow-2.9-017CEE?style=flat-square&logo=apacheairflow&logoColor=white)
 ![LangChain](https://img.shields.io/badge/LangChain-langchain--core-1C3C3C?style=flat-square&logo=langchain&logoColor=white)
 ![AWS S3](https://img.shields.io/badge/AWS%20S3-Storage-FF9900?style=flat-square&logo=amazons3&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)
 
 ---
 
@@ -74,8 +74,13 @@ SHAP 에이전트 (feature 기여도 계산 · delta 분석 · 보완 플래그)
 오케스트레이터 (Gemini API → 자연어 피드백 생성 → 최종 응답)
 ```
 
-> 아키텍처 다이어그램: [이미지 첨부 예정] (`PRD/mas_agent_architecture.png`)  
-> 데이터 파이프라인 다이어그램: [이미지 첨부 예정] (`PRD/data_pipeline_architecture.png`)
+#### 아키텍처 다이어그램
+
+![alt text](PRD/mas_agent_architecture.png)
+
+#### 데이터 파이프라인 다이어그램
+
+![alt text](PRD/data_pipeline_architecture.png)
 
 ---
 
@@ -267,10 +272,10 @@ python dags/extractors/crawler.py --mock           # API 없이 크롤러 구조
 | 역할 | 담당자 | 담당 영역 |
 |---|---|---|
 | AI 엔지니어 · 데이터 엔지니어 | 지동진 | ETL 파이프라인, 크롤러, MAS 구현 (오케스트레이터·스코어링·SHAP), FastAPI 서버 |
-| AI 엔지니어 | 박지윤 | LLM 파서, 임베딩 에이전트, 피드백 템플릿 DB |
+| AI 엔지니어 | 박지윤 | LLM 파서, 임베딩 에이전트, 피드백 템플릿 DB, 프로젝트 제안서 작성 |
 
 - 지동진: https://github.com/Dongjin-1203
-- 박지윤: [GitHub 링크 확인 필요]
+- 박지윤: https://github.com/krapnuyij
 
 ---
 
@@ -303,4 +308,4 @@ python dags/extractors/crawler.py --mock           # API 없이 크롤러 구조
 
 ## License
 
-MIT
+Apache License 2.0
