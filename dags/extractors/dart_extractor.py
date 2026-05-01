@@ -76,7 +76,15 @@ def fetch_corp_list() -> list[dict]:
             logger.warning('기업 목록 다운로드 실패 (시도 %d/3): %s', attempt, exc)
             if attempt == 3:
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(5)
+
+    if not response.content.startswith(b'PK'):
+        logger.error(
+            'DART API 응답이 ZIP이 아님. status=%s, content=%s',
+            response.status_code,
+            response.content[:200],
+        )
+        raise ValueError('DART corpCode.zip 응답 오류')
 
     with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
         xml_data = zf.read('CORPCODE.xml').decode('utf-8')
@@ -95,8 +103,9 @@ def fetch_corp_list() -> list[dict]:
                 'stock_code': stock_code or None,
             })
 
-    logger.info('기업 목록 조회 완료: %d건', len(corps))
-    return corps
+    listed_corps = [c for c in corps if c.get('stock_code')]
+    logger.info('전체 기업: %d개 → 상장사 필터링 후: %d개', len(corps), len(listed_corps))
+    return listed_corps
 
 
 def fetch_financial_statements(corp_code: str, year: int) -> dict:
