@@ -16,7 +16,8 @@ from extractors.dart_extractor import extract_dart_task
 from extractors.kipris_extractor import extract_kipris_task
 from extractors.bizinfo_extractor import extract_bizinfo_task
 from extractors.welfare_loader import load_welfare_task
-from transformers.merge import merge_task
+from extractors.crawler import extract_announcements_task
+from transformers.merge import merge_task, merge_program_features_task
 
 default_args = {
     'owner': 'dongjin',
@@ -65,5 +66,17 @@ with DAG(
         python_callable=load_welfare_task,
     )
 
+    extract_announcements = PythonOperator(
+        task_id='extract_announcements',
+        python_callable=extract_announcements_task,
+    )
+
+    merge_program_features = PythonOperator(
+        task_id='merge_program_features',
+        python_callable=merge_program_features_task,
+    )
+
     # 병렬 extract → 순차 transform → load
     [extract_dart, extract_kipris, extract_bizinfo] >> transform_merge >> load_welfare
+    # 공고문 크롤링 → program_features 병합 (독립 파이프라인)
+    extract_announcements >> merge_program_features
