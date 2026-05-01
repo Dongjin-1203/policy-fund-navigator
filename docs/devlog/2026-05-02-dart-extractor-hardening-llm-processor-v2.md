@@ -1,4 +1,4 @@
-# [에이전틱한 개발자 되기 #3] 중진공 AI 매칭 — DART 방어 코드 & LLM 파서 v2 병합
+# [에이전틱한 개발자 되기 #4] 중진공 AI 매칭 — DART 방어 코드 & LLM 파서 v2 병합
 
 > 시리즈: 에이전틱한 개발자 되기  
 > 태그: `DART` `LangGraph` `Gemini` `AWS S3` `git` `Python`  
@@ -16,6 +16,7 @@
 | 병합 후 Gemini API 실전 테스트 | ✅ HWP 1건 → 17개 세부사업 파싱 성공 |
 | S3 업로드 확인 | ✅ `embeddings/requirements_db/2026-05-02/` |
 | .env.example GEMINI_API_KEY 항목 추가 및 push | ✅ |
+| KIPRIS extractor 실전 전환 스모크 테스트 | ✅ HTTP 200, 특허 5건 반환, S3 저장 확인 |
 
 ---
 
@@ -66,7 +67,7 @@ git show origin/feature/llm-processor:src/processor.py
 
 이전 버전 대비 주요 변경점:
 
-| 항목 | 이전 (#2-2 병합본) | 이번 (#3) |
+| 항목 | 이전 (#3-2 병합본) | 이번 (#4) |
 |---|---|---|
 | 파이프라인 구조 | 단순 LangChain LCEL 체인 | LangGraph 4노드 그래프 |
 | 검증 로직 | 없음 | validate_node (날짜 논리 오류, 필수 필드 검사) |
@@ -143,7 +144,7 @@ S3 업로드: `embeddings/requirements_db/2026-05-02/test_2021.json` 완료.
 |---|---|---|
 | OpenDART extractor | ✅ | ZIP 검증 + 재시도 5초 + 상장사 필터 적용 |
 | bizinfo extractor | ✅ | jsonArray 파서 수정 완료 (이전 세션) |
-| KIPRIS extractor | ✅ | mock 모드 (키 승인 대기) |
+| KIPRIS extractor | ✅ | 실전 전환 완료 (HTTP 200, 특허 5건, S3 저장 확인) |
 | 크롤러 (crawler.py) | ✅ | slno 기반 파일명 저장 (이전 세션) |
 | LLM 파서 (processor.py) | ✅ | LangGraph 4노드, v2 병합 완료 |
 | merge.py | ✅ | slno 기반 JOIN (이전 세션) |
@@ -188,8 +189,8 @@ fc7d6ce  feat: add LangChain-based LLM parser with S3 upload (#3)
 
 ### 미결
 
-- [ ] 수혜이력 이의신청 결과에 따라 스코어링 방식 재검토
-- [ ] KIPRIS API 키 승인 후 mock → 실전 전환 테스트
+- [ ] 수혜이력 확보 불가 → 합성 레이블 기반 선형회귀로 α, β, γ 파라미터 추정 예정
+  (Hard Filter 충족 여부 0/1 타겟 기반)
 
 ---
 
