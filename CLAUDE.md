@@ -281,3 +281,15 @@ P(Selection) = α·F + β·T + γ·G
 - HWP 파싱은 팀원(박지윤) 담당 — `embeddings/` 경로 변경 시 팀원과 사전 협의
 - 모델은 GNN 확장 가능 구조로 설계하되 현재는 LightGBM LambdaRank 우선 구현
 - processor.py(팀원) 출력 스키마(`target_sector`, `target_location`, `required_tech`)는 program_features의 `industry_limit`, `debt_ratio_limit`, `requirements` 필드와 매핑 필요 — 통합 시 협의
+
+---
+
+## 로컬 스킬
+
+Claude Code에서 사용할 수 있는 스킬 파일 목록.
+트리거 조건에 해당하는 요청 시 자동으로 적용된다.
+
+| 스킬 | 경로 | 트리거 |
+|---|---|---|
+| 프로젝트 온보딩 | .claude/skills/project-onboarding.md | "작업 재개", "컨텍스트 파악", "어디까지 했지" |
+| 개발 회고 작성 | .claude/skills/devlog-writer.md | "회고 작성", "devlog 써줘", "마무리하자" |
