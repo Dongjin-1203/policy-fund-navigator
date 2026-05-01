@@ -207,7 +207,7 @@ marimo/_lsp/
 __marimo__/
 
 # Dev logs
-docs/devlog/
+# docs/devlog/
 
 # LLM parser output (large, regenerable)
 analysis_results.json
