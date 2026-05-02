@@ -233,7 +233,7 @@ def upload_to_s3(results: list, today: str) -> None:
             aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
         )
         for result in results:
-            program_id = result.get('source_file', 'unknown').rsplit('.', 1)[0]
+            program_id = result.get('source_file', 'unknown')
             s3_key = f"embeddings/requirements_db/{today}/{program_id}.json"
             s3_client.put_object(
                 Bucket=s3_bucket,
@@ -444,12 +444,8 @@ if __name__ == "__main__":
 
         if result_state.get("is_valid"):
             final_data = result_state["parsed_json"]
-            basename = os.path.basename(file_path)
-            underscore_idx = basename.find('_')
-            if underscore_idx > 0 and basename[:underscore_idx].isdigit():
-                slno = basename[:underscore_idx]
-            else:
-                slno = os.path.splitext(basename)[0]
+            base_name = os.path.basename(file_path)
+            slno = base_name.split('_')[0] if '_' in base_name else base_name.rsplit('.', 1)[0]
             final_data['source_file'] = slno
             final_data['extracted_feature_for_model'] = result_state.get("numerical_features")
             final_results.append(final_data)
