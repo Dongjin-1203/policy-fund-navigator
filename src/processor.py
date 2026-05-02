@@ -233,7 +233,7 @@ def upload_to_s3(results: list, today: str) -> None:
             aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
         )
         for result in results:
-            program_id = result.get('source_file', 'unknown').rsplit('.', 1)[0]
+            program_id = result.get('source_file', 'unknown')
             s3_key = f"embeddings/requirements_db/{today}/{program_id}.json"
             s3_client.put_object(
                 Bucket=s3_bucket,
@@ -444,7 +444,10 @@ if __name__ == "__main__":
 
         if result_state.get("is_valid"):
             final_data = result_state["parsed_json"]
-            final_data['source_file'] = os.path.basename(file_path)
+            base_name = os.path.basename(file_path)
+            # 파일명 맨 앞의 숫자(slno)만 추출해서 저장 (크롤러가 {slno}_{파일명} 형태로 저장하므로)
+            slno = base_name.split('_')[0] if '_' in base_name else base_name.rsplit('.', 1)[0]
+            final_data['source_file'] = slno
             # 테스트용
             final_data['extracted_feature_for_model'] = result_state.get("numerical_features")
             final_results.append(final_data)
