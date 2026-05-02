@@ -88,6 +88,47 @@ def test_financial_score_high_debt_penalized():
     assert calc_financial_score(low_debt) > calc_financial_score(high_debt)
 
 
+def test_financial_cash_score_continuous():
+    # 현금흐름 비율 높을수록 점수 높아야 함
+    high_cash = {**_FULL_FEATURES, 'cash_flow': 2_000_000_000}  # 매출 대비 40%
+    low_cash  = {**_FULL_FEATURES, 'cash_flow':   100_000_000}  # 매출 대비  2%
+    assert calc_financial_score(high_cash) > calc_financial_score(low_cash)
+
+
+def test_financial_negative_cash_zero():
+    # 현금흐름 음수 → cash_score = 0.0
+    neg_cash = {**_FULL_FEATURES, 'cash_flow': -100_000_000}
+    no_cash  = {**_FULL_FEATURES, 'cash_flow': None}
+    # 둘 다 cash_score=0이어야 하므로 점수 동일
+    assert calc_financial_score(neg_cash) == calc_financial_score(no_cash)
+
+
+def test_financial_profit_score_continuous():
+    # 영업이익 비율 높을수록 점수 높아야 함
+    high_profit = {**_FULL_FEATURES, 'operating_profit': 1_500_000_000}  # 30%
+    low_profit  = {**_FULL_FEATURES, 'operating_profit':    50_000_000}  #  1%
+    assert calc_financial_score(high_profit) > calc_financial_score(low_profit)
+
+
+# ── 기술 점수 ──────────────────────────────────────────────
+
+def test_tech_score_patent_only():
+    # IPC/최신성 가중치=0이므로 T = patent_count / 5 만 반영
+    features_3 = {**_FULL_FEATURES, 'patent_count': 3,
+                  'ipc_codes': None, 'latest_patent_year': None}
+    features_5 = {**_FULL_FEATURES, 'patent_count': 5,
+                  'ipc_codes': None, 'latest_patent_year': None}
+    assert calc_tech_score(features_3) == round(3 / 5, 4)
+    assert calc_tech_score(features_5) == 1.0
+
+
+def test_tech_score_ipc_recency_no_effect():
+    # IPC/최신성 가중치=0이므로 해당 필드 있어도 점수 변화 없어야 함
+    without = {**_FULL_FEATURES, 'ipc_codes': None, 'latest_patent_year': None}
+    with_ipc = {**_FULL_FEATURES, 'ipc_codes': ['C08L'], 'latest_patent_year': 2024}
+    assert calc_tech_score(without) == calc_tech_score(with_ipc)
+
+
 # ── 정책 가점 ──────────────────────────────────────────────
 
 def test_policy_score_venture_higher_than_none():
