@@ -69,12 +69,13 @@
 
 | 구분 | 소스 | 수집 방법 | 상태 |
 |---|---|---|---|
-| 기업 재무·기본정보 | OpenDART | API | 완료 |
-| 특허·실용신안 | KIPRIS | API | 완료 |
-| 사업 공고 목록 | 기업마당(bizinfo) | API | 완료 |
+| 기업 재무 (상장사·외감법인) | OpenDART | 온디맨드 실시간 조회 + 주간 갱신 | 완료 |
+| 기업 재무 (비상장) | 사용자 직접 입력 | FastAPI 요청 바디 | 구현 예정 |
+| 특허·실용신안 | KIPRIS | 배치 수집 + 주간 갱신 | 완료 |
+| 벤처기업 인증 | smes.go.kr | 배치 수집 + 주간 갱신 | 구현 예정 |
+| 이노비즈 인증 | innobiz.net | 배치 수집 + 주간 갱신 | 구현 예정 |
+| 사업 공고 목록 | 기업마당(bizinfo) | 배치 수집 | 완료 |
 | 공고문 원본 | 중진공 홈페이지 | 크롤러 | 완료 |
-| 과거 수혜 이력 | 정보공개포털 | CSV | **비공개 처분** |
-| 신용등급·인증 | KODATA | 샘플 데이터 | 커버리지 제한 |
 
 > **[수혜이력 비공개 처분 관련]**
 > 중진공 정책자금 수혜이력 데이터가 「공공기관의 정보공개에 관한 법률」
@@ -114,7 +115,7 @@ data_schema.svg — 데이터 스키마 다이어그램
 |---|---|
 | program_id | 사업공고 ID (PK) |
 | program_name | 사업명 |
-| category | 자금/수출/인력/기타 |
+| category | 금융/기술/인력/수출/내수/창업/경영/기타 |
 | max_support | 지원 한도 |
 | interest_rate | 금리 |
 | apply_start | 신청 시작일 |
@@ -145,9 +146,36 @@ data_schema.svg — 데이터 스키마 다이어그램
 
 > **[변경]** 수혜이력 → welfare_loader → labels.parquet 흐름은 현재 제외됩니다.
 
+#### 온디맨드 수집 (FastAPI /match 요청 시)
+
+```
+POST /match 요청 (사업자번호)
+  → company_features DB 조회
+  → 없으면 DART API 실시간 조회
+    → 재무 있음 (상장사·외감법인): 자동 저장
+    → 재무 없음 (비상장): 사용자 입력 요청 → 저장
+  → 스코어링 진행
+```
+
+#### 주기적 자동 수집 (Airflow DAG @weekly)
+
+자동 수집 가능:
+- extract_dart: 기존 저장 상장사 재무 갱신
+- extract_kipris: 특허 데이터 갱신
+- extract_bizinfo: 공고 목록 갱신
+- extract_venture (예정): 벤처인증 여부 갱신 (smes.go.kr API)
+- extract_innobiz (예정): 이노비즈 인증 갱신 (innobiz.net API)
+
+자동 수집 불가 (사용자 입력으로 대체):
+- 비상장 중소기업 재무 데이터 (공시 의무 없어 공개 DB 없음)
+- 추후 KODATA 등 유료 데이터 연동으로 고도화 예정
+
 ### 4.2 Airflow DAG 구조
 
-- extract_dart · extract_kipris · extract_bizinfo (병렬) → transform_merge → load_to_s3
+- extract_dart: 기존 저장 기업만 주간 갱신 (신규 기업은 /match 온디맨드 수집)
+- extract_kipris · extract_bizinfo (병렬) → transform_merge → load_to_s3
+- extract_venture (예정): smes.go.kr 벤처인증 여부 갱신
+- extract_innobiz (예정): innobiz.net 이노비즈 인증 갱신
 - 스케줄: @weekly
 - 환경: Apache Airflow 2.9 + Docker Compose
 - 스토리지: AWS S3
@@ -256,7 +284,7 @@ s3://[BUCKET_NAME]/
 
 | 엔드포인트 | 설명 |
 |---|---|
-| POST /match | 사업자번호 입력 → Top-N 매칭 결과 반환 |
+| POST /match | 사업자번호 입력 → DART 온디맨드 조회 → 상장사: 자동 저장 → 비상장: 사용자 재무 정보 입력 요청 → Top-N 매칭 결과 반환 |
 | GET /feedback/{program_id} | 특정 사업 XAI 피드백 반환 |
 
 > **[확인 필요]** 위 엔드포인트 외 추가로 필요한 엔드포인트가 있으면 기입해주세요.
@@ -284,6 +312,9 @@ s3://[BUCKET_NAME]/
 | HWP 파싱 | pdfplumber 미지원 | Gemini API 직접 바이너리 전송으로 대응 |
 | 클래스 불균형 | 실데이터 없어 해당 없음 | 실데이터 확보 시 재검토 |
 | S3 경로 공백 | 공고문 파일명 공백·괄호 포함 | LLM 파서 URL 인코딩 처리 필요, 팀원 협의 |
+| 비상장 기업 재무 | 공개 DB 없음 | 사용자 직접 입력 |
+| 벤처·이노비즈 인증 | smes.go.kr, innobiz.net | 배치 수집 구현 예정 |
+| 신용등급 | KODATA 유료 | 추후 고도화 예정 |
 
 ---
 

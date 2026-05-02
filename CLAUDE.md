@@ -76,6 +76,31 @@ pytest tests/test_dart_extractor.py
 
 ---
 
+## 기업 데이터 수집 방식
+
+### 온디맨드 수집 (FastAPI /match 요청 시)
+1. company_features DB에서 사업자번호 조회
+2. 있으면 → 캐시된 데이터 사용
+3. 없으면 → DART API 실시간 조회
+   - 재무 있음 (상장사·외감법인): 자동 저장
+   - 재무 없음 (비상장): 사용자 입력 요청 후 저장
+4. 저장 후 스코어링 진행
+
+### 주기적 자동 수집 (Airflow DAG @weekly)
+
+자동 수집 가능:
+- extract_dart: 기존 저장 상장사 재무 갱신
+- extract_kipris: 특허 데이터 갱신
+- extract_bizinfo: 공고 목록 갱신
+- extract_venture (예정): smes.go.kr 벤처인증 갱신
+- extract_innobiz (예정): innobiz.net 이노비즈 갱신
+
+자동 수집 불가:
+- 비상장 중소기업 재무 → 사용자 직접 입력
+- 신용등급 → 추후 KODATA 연동 예정
+
+---
+
 ## 기술 스택
 
 | 레이어 | 기술 |
@@ -212,7 +237,7 @@ credit_grade     # 신용등급 (없으면 None)
 ```
 program_id       # 사업공고 ID
 program_name     # 사업명
-category         # 자금/수출/인력/기타
+category         # 금융/기술/인력/수출/내수/창업/경영/기타
 max_support      # 지원 한도
 interest_rate    # 금리
 apply_start      # 신청 시작일
