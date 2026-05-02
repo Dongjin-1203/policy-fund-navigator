@@ -7,15 +7,20 @@ import glob
 import json
 import logging
 import boto3
+import re
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Iterator
+from typing import Iterator, Dict, TypedDict, Any, List
 
 from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+from langgraph.graph import StateGraph, END
+
+from templates import FEEDBACK_TEMPLATES
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,6 +39,11 @@ class GovernmentNoticeLoader(BaseLoader):
             content = self._extract_hwp_with_labels()
         else:
             content = "지원하지 않는 파일 형식입니다."
+
+        # 예외 처리
+        if len(content.strip()) < 50:
+            logging.warning(f"경고: {self.file_path}에서 추출된 텍스트가 너무 짧습니다.")
+            content = "추출 실패 또는 내용 없음"
 
         yield Document(
             page_content=content,
@@ -235,6 +245,184 @@ def upload_to_s3(results: list, today: str) -> None:
     except Exception as e:
         logging.error("S3 업로드 실패: %s", e)
 
+# 한글 단위 변환기
+def convert_korean_money(text):
+    """한글 금액을 숫자로 변환"""
+    # 텍스트가 없거나 이미 숫자인 경우
+    if not text:
+        return 0
+    if isinstance(text, (int, float)):
+        return text
+    
+    # 문자열로 변환
+    text = str(text).replace(',', '').replace(' ', '')
+    
+    # 숫자와 단위 분리 정규식
+    match = re.search(r'([\d.]+)\s*(억|만|천)?', text)
+
+    # 정규식으로 못 찾은 경우
+    if not match:
+        # 순수하게 숫자만 들어있는지 한 번 더 확인
+        pure_numbers = re.sub(r'[^\d]', '', text)
+        if pure_numbers:
+            return int(pure_numbers)
+        return 0
+    
+    number = float(match.group(1))
+    unit = match.group(2)
+
+    if unit == '억':
+        return int(number * 100000000)
+    elif unit == '만':
+        return int(number * 10000)
+    elif unit == '천':
+        return int(number * 1000)
+    else:
+        return int(number)
+
+
+# 트리 모델용 피처 추출기
+def extract_numerical_features(parsed_data: Dict) -> Dict:
+    """트리 모델(LightGBM) 스코어링을 위한 정량적 피처 추출"""
+    features = {}
+
+    # max_support에서 숫자만 안전하게 추출
+    raw_support = parsed_data.get("max_support")
+    features["max_support_amount"] = convert_korean_money(raw_support)
+
+    # 부채 비율
+    debt_ratio = parsed_data.get("debt_ratio_limit")
+    features["debt_ratio_limit"] = float(debt_ratio) if debt_ratio is not None else 9999.0
+
+    # 요구사항(requirements) 텍스트에서 숫자 추출 (정규식 활용)
+    reqs = " ".join(parsed_data.get("requirements", []))
+    history_match = re.search(r'업력.*?(\d+)년', reqs)
+    features["min_history_years"] = int(history_match.group(1)) if history_match else 0
+
+    return features
+
+
+# LangGraph 에이전트 구조
+class GraphState(TypedDict):
+    file_path: str
+    raw_content: str
+    parsed_json: Dict[str, Any]
+    numerical_features: Dict[str, float]
+    is_valid: bool
+    retry_count: int
+    rejection_reasons: List[str]  # 탈락 사유 코드들
+    final_feedback: str  # 최종 완성된 텍스트
+
+# Node 함수들 정의
+def extract_node(state: GraphState):
+    """파일에서 텍스트와 표를 추출"""
+    logging.info(f"--- [Node 1] 텍스트 추출 중: {os.path.basename(state['file_path'])} ---")
+    loader = GovernmentNoticeLoader (state['file_path'])
+    docs = loader.load()
+    return {"raw_content": docs[0].page_content, "retry_count": state.get("retry_count", 0) + 1}
+
+def parse_node(state: GraphState):
+    """LLM을 이용해 정형 JSON으로 변환"""
+    logging.info("--- [Node 2] LLM 파싱 및 JSON 변환 중 ---")
+    chain = create_analysis_chain()
+    categories = {"금융", "기술", "인력", "수출", "내수", "창업", "경영", "기타"}
+
+    try:
+        result = chain. invoke({"context": state['raw_content'], "categories": categories})
+        return {"parsed_json": result}
+    except Exception as e:
+        logging.error(f"파싱 실패: {e}")
+        return {"is_valid": False}
+    
+def validate_node(state: GraphState):
+    """데이터 정합성 검토"""
+    logging.info("--- [Node 3] 데이터 정합성 검증 중 ---")
+    data = state.get('parsed_json', {})
+
+    # 필수 필드 검사
+    if not data or "announcement_title" not in data:
+        logging.warning("검증 실패: 필수 제목이 누락되었습니다.")
+        return {"is_valid": False}
+    
+    # 날짜 논리 오류
+    for prog in data.get("programs", []):
+        if prog.get("apply_start") and prog.get("apply_end"):
+            if prog["apply_start"] > prog["apply_end"]:
+                logging.warning("날짜 논리 오류: 마감일이 시작보다 빠릅니다. LLM에게 재파싱을 요청합니다.")
+                return {"is_valid": False}
+
+    # 트리 모델용 피처 추출 및 병합
+    if data.get("programs"):
+        features = extract_numerical_features(data["programs"][0])
+        return {"is_valid": True, "numerical_features": features, "parsed_json": data}
+
+# 피드백 생성 노드
+def feedback_node(state: GraphState):
+    print("--- [Node 4] 피드백 템플릿 생성 중 ---")
+
+    # 임시 데이터 (나중에 DB + LightGBM 결과와 연동)
+    context = {
+        "announcement_title": state['parsed_json'].get("announcement_title", "정부지원사업"),
+        "score": 85,
+        "limit_ratio": state['numerical_features'].get('debt_ratio_limit', 500),
+        "company_ratio": 600,
+        "min_years": state['numerical_features'].get('min_history_years', 3),
+        "company_years": 2
+    }
+
+    feedback_messages = []
+
+    # 사유에 맞춰 템플릿에 데이터 끼워 넣기 (f-string 포맷팅)
+    if not state.get('rejection_reasons'):
+        msg = FEEDBACK_TEMPLATES["success"].format(**context)
+        feedback_messages.append(msg)
+    else:
+        for reason in state['rejection_reasons']:
+            # 해당 사유의 템플릿을 가져와서 변수들({score}, {limit_ratio} 등)을 채움
+            msg = FEEDBACK_TEMPLATES[reason].format(**context)
+            feedback_messages.append(msg)
+
+    # 완성된 메시지를 합쳐서 State에 저장
+    return {"final_feedback": "\n\n".join(feedback_messages)}
+  
+
+# 조건부 로직(Edge) 정의
+def should_continue(state: GraphState):
+    if state["is_valid"]:
+        return "feedback"
+    elif state["retry_count"] >= 3:
+        logging.error("최대 재시도 횟수 초과. 강제 종료합니다.")
+        return "end"
+    else:
+        logging.info("데이터 이상감지. 파싱을 재시도합니다.")
+        return "retry"
+    
+# 그래프 구성
+def build_parser_graph():
+    workflow = StateGraph(GraphState)
+    workflow.add_node("extract", extract_node)
+    workflow.add_node("parse", parse_node)
+    workflow.add_node("validate", validate_node)
+    workflow.add_node("feedback", feedback_node)
+
+    workflow.set_entry_point("extract")
+    workflow.add_edge("extract", "parse")
+    workflow.add_edge("parse", "validate")
+    # 검증 실패 시 다시 추출(혹은 변환)로 돌아가는 순환 구조
+    workflow.add_conditional_edges(
+        "validate",
+        should_continue,
+        {
+            "feedback": "feedback",
+            "end": END,
+            "retry": "parse"
+            }
+            )
+    # 피드백이 끝나면 최종 종료(END)
+    workflow.add_edge("feedback", END)
+
+    return workflow.compile()
+
 
 if __name__ == "__main__":
     folder_path = "raw_data"
@@ -243,41 +431,37 @@ if __name__ == "__main__":
         + glob.glob(os.path.join(folder_path, "*.hwp"))
     )
 
-    logging.info("총 %d개의 파일을 분석합니다.", len(file_list))
+    logging.info("총 %d개의 파일을 LangGraph 에이전트로 분석합니다.", len(file_list))
 
-    chain = create_analysis_chain()
+    app = build_parser_graph()
     final_results = []
 
     for file_path in file_list:
-        try:
-            logging.info("처리 중: %s", os.path.basename(file_path))
-            loader = GovernmentNoticeLoader(file_path)
-            docs = loader.load()
+        initial_state = {"file_path": file_path, "retry_count": 0, "is_valid": False}
 
-            program_categories = {"금융", "기술", "인력", "수출", "내수", "창업", "경영", "기타"}
-            result = chain.invoke({
-                "context": docs[0].page_content,
-                "categories": program_categories
-            })
+        # 그래프 실행
+        result_state = app.invoke(initial_state)
 
-            # {slno}_{filename} 형식에서 slno 추출
+        if result_state.get("is_valid"):
+            final_data = result_state["parsed_json"]
             basename = os.path.basename(file_path)
             underscore_idx = basename.find('_')
             if underscore_idx > 0 and basename[:underscore_idx].isdigit():
                 slno = basename[:underscore_idx]
             else:
                 slno = os.path.splitext(basename)[0]
-            result['source_file'] = slno
-            final_results.append(result)
+            final_data['source_file'] = slno
+            final_data['extracted_feature_for_model'] = result_state.get("numerical_features")
+            final_results.append(final_data)
             logging.info("완료: slno=%s", slno)
+        else:
+            logging.error("최종 실패: %s", os.path.basename(file_path))
 
-        except Exception as e:
-            logging.error("%s 처리 중 오류 발생: %s", file_path, e)
-
+    # 결과 저장
     with open("analysis_results.json", "w", encoding="utf-8") as f:
         json.dump(final_results, f, ensure_ascii=False, indent=4)
 
     today = datetime.now().strftime('%Y-%m-%d')
     upload_to_s3(final_results, today)
 
-    logging.info("모든 파일 분석 완료. 결과가 analysis_results.json에 저장되었습니다.")
+    logging.info("에이전트 분석 완료. 결과가 analysis_results.json에 저장되었습니다.")
