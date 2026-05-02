@@ -1,0 +1,2 @@
+# TODO: 구현 예정
+# 역할: 임베딩 에이전트 (Hard Filter, Soft Filter, PolicyVectorStore 래핑)
