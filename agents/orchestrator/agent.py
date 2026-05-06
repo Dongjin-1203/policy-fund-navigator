@@ -395,5 +395,9 @@ def orchestrator_node(state: PolicyFundState) -> PolicyFundState:
     if ranked_programs is not None:
         return _phase_generate_feedback(state)
 
-    # dart_found=True이지만 ranked_programs 미설정 → 파이프라인 진행 중
+    # 임베딩 실패 또는 후보 없음으로 복귀했으나 ranked_programs 미설정 → no_match 응답 생성
+    if state.get("candidate_programs") == [] or state.get("error"):
+        return _phase_generate_feedback({**state, "ranked_programs": []})
+
+    # dart_found=True이지만 파이프라인 진행 중
     return state
