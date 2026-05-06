@@ -174,6 +174,8 @@ class PolicyVectorStore:
 
                 "region_raw": json.dumps(row.get('region_raw', [])),
                 "mapped_region_codes": json.dumps(row.get('mapped_region_codes', [])),
+                "special_zones": json.dumps(row.get('special_zones', [])),
+
                 "max_support": max_support,
                 "min_business_age": min_age,
                 "max_business_age": max_age,
@@ -423,7 +425,7 @@ if __name__ == "__main__":
             "program_name": "제조현장 디지털 전환(DX) 지원",
             "category": "기술",
             "target_industry_text": ["제조업", "정보통신업"],
-            "target_ksic_section": ["C", "J"],
+            "target_ksic_sections": ["C", "J"],
             "excluded_industry_text": [],
             "region_raw": ["부산", "경남"],
             "max_support": 50000000,

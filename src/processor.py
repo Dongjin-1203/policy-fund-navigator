@@ -335,7 +335,7 @@ def create_analysis_chain():
         "target_industry_codes": ["string"],
         "excluded_industry_text": ["string"],
         "excluded_industry_codes": ["string"],
-        "excluded_subset_conditions": [
+        "excluded_subset_condition": [
             {{ "code": "string", "condition": "string" }}
         ],
         "caution_notes": ["string"],
