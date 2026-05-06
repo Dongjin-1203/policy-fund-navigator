@@ -212,3 +212,6 @@ analysis_results.json
 # Mac system files
 .DS_Store
 **/.DS_Store
+
+# 로컬 DB 제외
+chroma_db/ 
