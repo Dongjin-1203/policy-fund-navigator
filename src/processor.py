@@ -23,7 +23,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from langgraph.graph import StateGraph, END
 
-from templates import FEEDBACK_TEMPLATES
+from templates import SUCCESS_WRAPPER, PROGRAM_ITEM_FORMAT, get_feedback_message
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -576,44 +576,24 @@ def feedback_node(state: GraphState):
     if not programs:
         return {"final_feedback": "세부 사업 정보를 찾을 수 없습니다."}
     
-    summary_messages = [f"공고명: {parsed_data.get('announcement_title')}"]
+    green_items = []
 
     for idx, prog in enumerate(programs):
         # 임시 데이터 (나중에 DB 연동 시 실제 값으로 교체)
-        context = {
-            "program_name": prog.get("program_name", f"트랙 {idx+1}"),
-            "score": 85,  # 임시
-            "limit_ratio": prog.get('debt_ratio_limit', "제한 없음"),
-            "min_age_limit": prog.get('min_business_age', 0),
-            "max_age_limit": prog.get('max_business_age', "제한 없음"),
-            "apply_end": prog.get('apply_end', "상시"),
-            "company_ratio": 600,  # 임시
-            "region_status": ", ".join(prog.get("region", ["전국"])),
-            "industry_status": "적합",
-            "matched_programs": prog.get("program_name", f"트랙 {idx+1}"),
-        }
+        item_str = PROGRAM_ITEM_FORMAT.format(
+            score=0.999,  # 파싱 단계이므로 임시 점수 부여
+            program_name=prog.get("program_name", f"트랙 {idx+1}"),
+            category=prog.get("category", "기타"),
+            apply_end=prog.get("apply_end", "상시")
+        )
+        green_items.append(item_str)
 
-        feedback_messages = []
+    # 완성된 리스트를 SUCCESS_WRAPPER에 끼워 넣기
+    matched_programs_str = "\n".join(green_items)
+    final_msg = SUCCESS_WRAPPER.format(matched_programs=matched_programs_str)
 
-        # 사유에 맞춰 템플릿에 데이터 끼워 넣기 (f-string 포맷팅)
-        if not state.get('rejection_reasons'):
-            msg = FEEDBACK_TEMPLATES["success"].format(**context)
-            feedback_messages.append(msg)
-        else:
-            for reason in state['rejection_reasons']:
-                # templates.py의 키값과 일치하는지 확인 (예: "debt_excess")
-                if reason in FEEDBACK_TEMPLATES:
-                    # 해당 사유의 템플릿을 가져와서 변수들({score}, {limit_ratio} 등)을 채움
-                    msg = FEEDBACK_TEMPLATES[reason].format(**context)
-                    feedback_messages.append(msg)
-                else:
-                    logging.warning(f"정의되지 않은 피드백 사유: {reason}")
-
-        # 합쳐진 메시지를 전체 리스트에 추가
-        summary_messages.append(f"\n[세부사업 {idx+1}: {context['program_name']}]\n" + "\n".join(feedback_messages))
     # 완성된 메시지를 합쳐서 State에 저장
-    return {"final_feedback": "\n\n".join(summary_messages)}
-  
+    return {"final_feedback": final_msg}
 
 # 조건부 로직(Edge) 정의
 def should_continue(state: GraphState):
