@@ -95,3 +95,79 @@ def get_feedback_message(reason_code: str, context_data: dict) -> str:
     except KeyError as e:
         # 템플릿에 필요한 변수가 context_data에 없을 경우 에러 방지
         return template.replace(f"{{{e.args[0]}}}", "정보없음")
+
+# ======================================================================
+# 오케스트레이터 전용 템플릿
+# (processor.py / embedder.py가 사용하는 위 상수와 별개)
+# ======================================================================
+
+# 개별 프로그램 수준 피드백 메시지 (FEEDBACK_TEMPLATES["key"].format(...) 호출)
+FEEDBACK_TEMPLATES = {
+    "success": (
+        "축하합니다! 귀사는 '{announcement_title}' 사업에 매우 적합한 조건"
+        "(매칭 점수: {score}점)을 갖추고 있습니다. 바로 지원을 준비해 보세요."
+    ),
+    "debt_ratio_excess": (
+        "[부적합] 부채비율 요건 미달\n"
+        "공고 기준은 부채비율 {limit_ratio}% 이하이나, 귀사의 부채비율은 {company_ratio}%로 확인됩니다. "
+        "재무 건전성 개선 후 다음 공고를 노려보시는 것을 권장합니다."
+    ),
+    "history_short": (
+        "[부적합] 업력 요건 미달\n"
+        "본 사업은 업력 {min_years}년 이상 기업을 대상으로 하나, "
+        "귀사는 현재 업력 {company_years}년으로 지원 요건에 미달합니다."
+    ),
+    "low_score": (
+        "[부적합] 종합 점수 미달\n"
+        "기본 지원 자격은 충족하나, 룰 기반 분석 결과 합격 확률(점수: {score}점)이 다소 낮습니다. "
+        "가점 항목(특허, 인증 등)을 추가로 확보하시는 것이 좋습니다."
+    ),
+}
+
+# 오케스트레이터 최종 응답 래퍼
+# 변수: {company_id}, {count}, {program_list}, {gemini_feedback}
+ORCH_SUCCESS_WRAPPER = (
+    "[매칭 성공] {company_id} 귀사에 적합한 정책자금 {count}건을 추천합니다.\n\n"
+    "{program_list}\n\n"
+    "{gemini_feedback}"
+)
+
+# 변수: {reason}, {improvable_guide}
+ORCH_YELLOW_WRAPPER = (
+    "[주의] 기본 자격은 충족하나 선정 가능성이 낮습니다.\n\n"
+    "{reason}\n\n"
+    "보완 방향:\n{improvable_guide}"
+)
+
+# 변수: {reason}
+ORCH_RED_WRAPPER = (
+    "[미달] 현재 자격 요건 미달로 매칭 결과가 없습니다.\n\n"
+    "{reason}"
+)
+
+# 오케스트레이터 프로그램 목록 아이템 포맷 (score는 0~100 점수)
+# 변수: {rank}, {category}, {program_name}, {max_support}, {interest_rate}, {score}
+ORCH_PROGRAM_ITEM_FORMAT = (
+    "{rank}. [{category}] {program_name}"
+    " — 한도: {max_support} / 금리: {interest_rate}% / 점수: {score:.1f}점"
+)
+
+# 오케스트레이터 사유 메시지 (정적 키는 직접 사용, 동적 키는 .format()으로 채움)
+ORCH_REASON_MESSAGES = {
+    "no_candidates": (
+        "귀사의 업종·소재지·부채비율 조건에 맞는 공고를 찾지 못했습니다. "
+        "현재 모집 중인 공고가 없거나, 자격 조건이 충족되지 않습니다."
+    ),
+    # .format(company_ratio=..., limit_ratio=...)
+    "debt_ratio": (
+        "부채비율 {company_ratio}%가 공고 기준 {limit_ratio}% 이하 조건을 초과합니다."
+    ),
+    # .format(company_years=..., min_years=...)
+    "business_age": (
+        "업력 {company_years}년이 해당 공고 요건인 {min_years}년 이상에 미달합니다."
+    ),
+    "user_input_required": (
+        "비상장 기업으로 공개 재무 데이터가 없습니다. "
+        "재무 정보를 직접 입력해 주시면 매칭을 진행합니다."
+    ),
+}
