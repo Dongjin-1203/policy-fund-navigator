@@ -1,0 +1,13 @@
+{
+  "alpha": 0.4,
+  "beta": 0.3,
+  "gamma": 0.3,
+  "r2_score": null,
+  "label_ratio": 0.2873108116737978,
+  "total_pairs": 219226,
+  "total_companies": 4474,
+  "total_programs": 49,
+  "regression_valid": false,
+  "note": "재무/기술 데이터 전체 null로 인해 회귀 불가 -- 도메인 초기값 사용",
+  "generated_at": "2026-05-06T22:05:30.857647"
+}
