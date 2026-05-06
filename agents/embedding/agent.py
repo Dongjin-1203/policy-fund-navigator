@@ -17,6 +17,15 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 _CHROMA_DIR = os.environ.get('CHROMA_DB_PATH', './chroma_db')
+
+# lifespan에서 주입되는 싱글턴 — 매 요청마다 새 인스턴스 생성 방지
+_shared_vector_store = None
+
+
+def set_vector_store(store) -> None:
+    """FastAPI lifespan에서 초기화된 PolicyVectorStore 인스턴스를 주입한다."""
+    global _shared_vector_store
+    _shared_vector_store = store
 _PROGRAM_FEATURES_KEY = 'processed/program_features.parquet'
 _MAX_AGE = 999
 
@@ -199,8 +208,12 @@ def embedding_node(state: PolicyFundState) -> PolicyFundState:
     user_profile = _company_to_user_profile(company)
     query = _build_query(company)
 
-    if PolicyVectorStore is None:
-        logger.warning("PolicyVectorStore 미초기화 — src.embedder import 실패, Soft Filter 건너뜀")
+    store = _shared_vector_store
+    if store is None:
+        if PolicyVectorStore is None:
+            logger.warning("PolicyVectorStore 미초기화 — src.embedder import 실패, Soft Filter 건너뜀")
+        else:
+            logger.warning("PolicyVectorStore 미초기화 — lifespan 주입 전, Soft Filter 건너뜀")
         return {
             **state,
             'candidate_programs': [],
@@ -208,7 +221,6 @@ def embedding_node(state: PolicyFundState) -> PolicyFundState:
         }
 
     try:
-        store = PolicyVectorStore(persist_directory=_CHROMA_DIR)
         result = store.search_for_agent(user_profile, query, top_k=20)
     except Exception as exc:
         logger.error("PolicyVectorStore 검색 실패: %s", exc)
