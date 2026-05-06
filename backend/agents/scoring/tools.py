@@ -153,61 +153,57 @@ def calc_policy_score(company_features: dict) -> float:
 
 
 def load_scoring_params() -> Tuple[float, float, float]:
-    """선형회귀로 추정된 α, β, γ 로드.
-
-    S3 → 로컬 파일 → 초기값 순으로 fallback.
+    """MLflow → S3 → 초기값 순으로 α, β, γ 로드.
 
     Returns:
         (alpha, beta, gamma) — 합이 1.0
-
-    TODO: MLflow 연동 시 아래로 교체
-        import mlflow
-        client = mlflow.tracking.MlflowClient()
-        run = client.get_run(run_id)
-        alpha = float(run.data.params['alpha'])
-        ...
     """
-    # S3에서 로드 시도
+    # 1. MLflow
+    try:
+        import mlflow
+        tracking_uri = os.environ.get('MLFLOW_TRACKING_URI', 'http://localhost:5000')
+        mlflow.set_tracking_uri(tracking_uri)
+        client = mlflow.tracking.MlflowClient()
+        experiment = client.get_experiment_by_name('scoring_params')
+        if experiment:
+            runs = client.search_runs(
+                experiment_ids=[experiment.experiment_id],
+                order_by=['start_time DESC'],
+                max_results=1,
+            )
+            if runs:
+                params = runs[0].data.params
+                alpha = float(params['alpha'])
+                beta  = float(params['beta'])
+                gamma = float(params['gamma'])
+                logger.info(
+                    "MLflow 파라미터 로드: α=%.4f, β=%.4f, γ=%.4f (run_id=%s)",
+                    alpha, beta, gamma, runs[0].info.run_id,
+                )
+                return alpha, beta, gamma
+    except Exception as exc:
+        logger.warning("MLflow 로드 실패: %s", exc)
+
+    # 2. S3 fallback
     try:
         import boto3
-        bucket = os.environ.get('S3_BUCKET_NAME')
-        if not bucket:
-            raise ValueError('S3_BUCKET_NAME 미설정')
+        bucket = os.environ['S3_BUCKET_NAME']
         s3 = boto3.client('s3')
         obj = s3.get_object(Bucket=bucket, Key='processed/scoring_params.json')
         params = json.loads(obj['Body'].read())
         alpha = float(params['alpha'])
-        beta = float(params['beta'])
+        beta  = float(params['beta'])
         gamma = float(params['gamma'])
         logger.info(
-            "파라미터 로드 (S3): α=%.4f, β=%.4f, γ=%.4f",
+            "S3 파라미터 로드: α=%.4f, β=%.4f, γ=%.4f",
             alpha, beta, gamma,
         )
         return alpha, beta, gamma
     except Exception as exc:
         logger.warning("S3 파라미터 로드 실패: %s", exc)
 
-    # 로컬 파일에서 로드 시도
-    local_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        'scoring_params.json',
-    )
-    try:
-        with open(local_path, encoding='utf-8') as f:
-            params = json.load(f)
-        alpha = float(params['alpha'])
-        beta = float(params['beta'])
-        gamma = float(params['gamma'])
-        logger.info(
-            "파라미터 로드 (로컬): α=%.4f, β=%.4f, γ=%.4f",
-            alpha, beta, gamma,
-        )
-        return alpha, beta, gamma
-    except Exception as exc:
-        logger.warning("로컬 파라미터 로드 실패: %s", exc)
-
-    # 초기값 fallback
-    logger.info("파라미터 초기값 사용: α=0.4, β=0.3, γ=0.3")
+    # 3. 초기값
+    logger.warning("파라미터 로드 실패 — 초기값 사용 (α=0.4, β=0.3, γ=0.3)")
     return 0.4, 0.3, 0.3
 
 
