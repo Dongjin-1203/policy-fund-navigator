@@ -387,7 +387,32 @@ class PolicyVectorStore:
         
         # Hard
         return self._hard_filter(user_profile, raw_results)
+    
+def get_top_n_recommendations(self, user_profile: dict, top_n_green: int = 3, top_n_yellow: int = 2):
+    """에이전트용 Top-N 자동 추천 래퍼 함수
+    검색어 없이 유저 프로필만으로 당장 지원 가능한(Green) 사업과 주시해야 할(Yellow) 사업 추천"""
+    logger.info(f"맞춤형 추천 엔진 가동 (프로필: {user_profile.get('company_id')})")
 
+    # 가장 넓은 범위의 '업종+지역'으로 Soft Filter를 크게 실행
+    broad_query = f"{user_profile.get('region', '')} {user_profile.get('industry_section', '')} 지원사업"
+    raw_results = self._soft_filter(broad_query, top_k=30, threshold=0.1)
+
+    # Hard Filter 적용
+    filtered = self._hard_filter(user_profile, raw_results)
+    
+    # 'Green(적격)', 'Yellow(조건부 부적격)' 사업들만 모아서 점수(유사도) 또는 최대지원금 순으로 정렬
+    green_programs = filtered['green']
+    yellow_programs = filtered['yellow']
+
+    # 정렬 로직 (가장 매력적인 사업이 위로 오도록 최대 지원금액 순 정렬)
+    green_programs.sort(key=lambda x: x['meta_data'].get('max_support', 0), reverse=True)
+    yellow_programs.sort(key=lambda x: x['meta_data'].get('max_support', 0), reverse=True)
+
+    # 4. 에이전트가 활용하기 좋게 Green과 Yellow를 분리해서 반환
+    return {
+        "recommended": green_programs[:top_n_green],      # 당장 지원 가능한 Top-N
+        "keep_an_eye_on": yellow_programs[:top_n_yellow]  # 조건부/대기 중인 Top-M
+    }
     
 if __name__ == "__main__":
     # 테스트용 가상 데이터 (나중에 processor.py 결과로 교체)
