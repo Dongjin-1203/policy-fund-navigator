@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 import os
@@ -16,7 +17,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 _CHROMA_DIR = os.environ.get('CHROMA_DB_PATH', './chroma_db')
-_S3_BUCKET = os.environ.get('S3_BUCKET', '')
 _PROGRAM_FEATURES_KEY = 'processed/program_features.parquet'
 _MAX_AGE = 999
 
@@ -151,14 +151,14 @@ def _build_query(company: dict) -> str:
 
 def _load_programs_from_s3() -> list[dict]:
     """S3에서 program_features.parquet 로드 후 dict 리스트 반환. 실패 시 빈 리스트."""
-    bucket = _S3_BUCKET
+    bucket = os.environ.get('S3_BUCKET_NAME', '')
     if not bucket:
-        logger.warning("S3_BUCKET 환경변수 미설정 — 프로그램 목록 S3 로드 건너뜀")
+        logger.warning("S3_BUCKET_NAME 환경변수 미설정 — 프로그램 목록 S3 로드 건너뜀")
         return []
     try:
         s3 = boto3.client('s3')
         obj = s3.get_object(Bucket=bucket, Key=_PROGRAM_FEATURES_KEY)
-        df = pd.read_parquet(obj['Body'])
+        df = pd.read_parquet(io.BytesIO(obj['Body'].read()))
         logger.info("S3 program_features.parquet 로드 완료: %d rows", len(df))
         return df.where(pd.notna(df), None).to_dict(orient='records')
     except Exception as exc:
@@ -198,6 +198,14 @@ def embedding_node(state: PolicyFundState) -> PolicyFundState:
     # 3. PolicyVectorStore Soft Filter
     user_profile = _company_to_user_profile(company)
     query = _build_query(company)
+
+    if PolicyVectorStore is None:
+        logger.warning("PolicyVectorStore 미초기화 — src.embedder import 실패, Soft Filter 건너뜀")
+        return {
+            **state,
+            'candidate_programs': [],
+            'error': 'PolicyVectorStore 미초기화',
+        }
 
     try:
         store = PolicyVectorStore(persist_directory=_CHROMA_DIR)
