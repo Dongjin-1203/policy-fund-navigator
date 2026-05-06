@@ -88,46 +88,50 @@ SHAP 에이전트 (feature 기여도 계산 · delta 분석 · 보완 플래그)
 
 ```
 policy-fund-navigator/
-├── docker-compose.yaml          # Airflow 2.9 + PostgreSQL + Redis
-├── requirements.txt
+├── docker-compose.yaml          # 전체 스택 (Airflow + MLflow + backend + frontend)
 ├── .env.example                 # 환경변수 템플릿
 │
-├── dags/
-│   ├── etl_pipeline.py          # 메인 Airflow DAG (@weekly)
-│   ├── extractors/
-│   │   ├── dart_extractor.py    # OpenDART API — 재무·기업 정보 수집
-│   │   ├── kipris_extractor.py  # KIPRIS API — 특허/실용신안 수집
-│   │   ├── bizinfo_extractor.py # 중소벤처24 API — 사업 공고 목록 수집
-│   │   ├── welfare_loader.py    # 수혜이력 CSV 로더 (실데이터 확보 시 사용)
-│   │   └── crawler.py           # 중진공 홈페이지 공고문 크롤러 (HWP/PDF → S3)
-│   └── transformers/
-│       └── merge.py             # ProgramFeatureMerger — metadata + LLM 파싱 결과 JOIN
+├── backend/                     # FastAPI 서버 + ETL + MAS 에이전트
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── api/
+│   │   ├── main.py              # FastAPI 앱 (lifespan: PolicyVectorStore 초기화)
+│   │   └── routers/
+│   │       ├── match.py         # POST /api/v1/match
+│   │       └── feedback.py      # GET  /api/v1/feedback/{program_id}
+│   ├── agents/                  # LangGraph MAS 에이전트
+│   │   ├── orchestrator/        # State 초기화·흐름 제어·피드백 생성
+│   │   ├── embedding/           # Hard/Soft Filter (ChromaDB + KR-SBERT)
+│   │   ├── scoring/             # 룰 기반 스코어링 (P = α·F + β·T + γ·G)
+│   │   └── shap/                # feature 기여도·delta 분석
+│   ├── src/
+│   │   ├── embedder.py          # PolicyVectorStore (ChromaDB 래퍼)
+│   │   └── processor.py         # Gemini API LLM 파서 (공고문 → 자격요건 JSON)
+│   ├── dags/
+│   │   ├── etl_pipeline.py      # 메인 Airflow DAG (@weekly)
+│   │   ├── extractors/
+│   │   │   ├── dart_extractor.py
+│   │   │   ├── kipris_extractor.py
+│   │   │   ├── bizinfo_extractor.py
+│   │   │   ├── welfare_loader.py
+│   │   │   └── crawler.py
+│   │   └── transformers/
+│   │       └── merge.py
+│   ├── models/
+│   │   ├── train.py
+│   │   ├── predict.py
+│   │   └── explainer.py
+│   └── tests/
+│       └── test_*.py
 │
-├── src/
-│   └── processor.py             # LangChain + Gemini API LLM 파서 (공고문 → 자격요건 JSON)
+├── frontend/                    # Next.js 챗봇 UI
+│   ├── Dockerfile
+│   └── src/app/
+│       ├── page.tsx             # 메인 채팅 UI
+│       └── components/          # ChatWindow, UserMessage, BotMessage
 │
-├── agents/                      # LangGraph MAS 에이전트 (구현 예정)
-│   ├── orchestrator/
-│   ├── embedding/
-│   ├── scoring/
-│   └── shap/
-│
-├── models/                      # 스코어링 모델 (구현 예정)
-│   ├── train.py
-│   ├── predict.py
-│   └── explainer.py
-│
-├── api/
-│   └── main.py                  # FastAPI 서버 (구현 예정)
-│
-├── PRD/
-│   └── PRD.md                   # 제품 요구사항 문서 (v0.4)
-│
-├── docs/
-│   └── devlog/                  # 개발 회고 시리즈
-│
-└── tests/
-    └── test_*.py
+└── PRD/
+    └── PRD.md                   # 제품 요구사항 문서
 ```
 
 ---
@@ -136,7 +140,6 @@ policy-fund-navigator/
 
 ### Prerequisites
 
-- Python 3.11+
 - Docker Desktop
 - AWS 계정 및 S3 버킷
 - 아래 API 키 발급 필요:
@@ -148,7 +151,7 @@ policy-fund-navigator/
 | 기업마당 (bizinfo) | https://www.bizinfo.go.kr |
 | Gemini API | https://aistudio.google.com |
 
-### 환경 설정
+### Docker Quick Start
 
 **① 저장소 클론**
 
@@ -161,94 +164,89 @@ cd policy-fund-navigator
 
 ```bash
 cp .env.example .env
+# .env 파일을 열고 API 키 및 AWS 자격증명 입력
 ```
 
-`.env` 파일을 열고 아래 항목을 입력한다:
-
-```dotenv
-# AWS
-AWS_ACCESS_KEY_ID=your_aws_access_key_id
-AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
-AWS_DEFAULT_REGION=ap-northeast-2
-S3_BUCKET_NAME=your_s3_bucket_name
-
-# API 키
-OPENDART_API_KEY=your_opendart_api_key
-KIPRIS_API_KEY=your_kipris_api_key
-BIZINFO_API_KEY=your_bizinfo_api_key
-GEMINI_API_KEY=your_gemini_api_key   # .env.example에 없음 — 직접 추가
-```
-
-**③ Docker Compose 실행 (Airflow)**
+**③ 전체 스택 실행**
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-- Airflow UI: http://localhost:8080
-- 초기 계정: `admin` / `admin`
-- 초기 기동까지 약 1~2분 소요
+| 서비스 | URL |
+|---|---|
+| 챗봇 UI (Next.js) | http://localhost:3000 |
+| API 서버 (FastAPI) | http://localhost:8000/docs |
+| Airflow UI | http://localhost:8080 (admin/admin) |
+| MLflow UI | http://localhost:5000 |
 
-**④ Python 의존성 설치**
+> 초기 기동 시 `airflow-init` → `airflow-webserver` 순으로 약 2~3분 소요
+
+### 로컬 개발 (Docker 없이)
 
 ```bash
+# 백엔드
+cd backend
 pip install -r requirements.txt
+uvicorn api.main:app --reload --port 8000
+
+# 프론트엔드
+cd frontend
+npm install
+npm run dev
 ```
 
 ---
 
 ## 5. 실행 방법
 
-### 전체 데이터 파이프라인
+### ETL 파이프라인 (Airflow)
 
 ```bash
 # Airflow UI에서 etl_pipeline DAG 트리거 (권장)
 # 또는 개별 모듈 직접 실행:
 
-# 기업 데이터 수집
+cd backend
+
 python dags/extractors/dart_extractor.py
 python dags/extractors/kipris_extractor.py
 python dags/extractors/bizinfo_extractor.py
-
-# 중진공 공고문 수집 (HWP/PDF → S3 raw/announcements/)
 python dags/extractors/crawler.py
 
-# LLM 파싱 (Gemini API — 공고문 → 자격요건 JSON → S3 embeddings/)
-python src/processor.py
-
-# Master DataFrame 생성 (metadata + LLM 파싱 결과 JOIN → S3 processed/)
-python dags/transformers/merge.py
+python src/processor.py                   # Gemini API LLM 파싱
+python dags/transformers/merge.py         # S3 processed/ 생성
 ```
 
 ### Mock 모드 (API 키 없이 구조 검증)
 
 ```bash
+cd backend
 python dags/extractors/kipris_extractor.py --mock
 python dags/extractors/crawler.py --mock
 python dags/transformers/merge.py --mock
 ```
 
-### API 서버 실행 (구현 예정)
+### API 엔드포인트
 
-```bash
-uvicorn api.main:app --reload
-# POST /match          — 사업자번호 → Top-N 매칭 결과
-# GET  /feedback/{id}  — 특정 사업 XAI 피드백
-```
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| POST | `/api/v1/match` | 사업자번호 → Top-N 정책자금 추천 |
+| GET | `/api/v1/feedback/{program_id}` | 특정 사업 XAI 피드백 조회 |
 
 ---
 
 ## 6. 테스트
 
 ```bash
+cd backend
+
 # 전체 테스트
 pytest tests/
 
 # 개별 모듈 스모크 테스트
-python dags/extractors/dart_extractor.py          # DART API 연결 확인
-python dags/extractors/kipris_extractor.py         # KIPRIS API 연결 확인 (키 필요)
-python dags/extractors/kipris_extractor.py --mock  # API 없이 구조 검증
-python dags/extractors/crawler.py --mock           # API 없이 크롤러 구조 검증
+python dags/extractors/dart_extractor.py
+python dags/extractors/kipris_extractor.py --mock
+python dags/extractors/crawler.py --mock
 ```
 
 ---
@@ -262,8 +260,9 @@ python dags/extractors/crawler.py --mock           # API 없이 크롤러 구조
 | 수혜이력 데이터 | ❌ 비공개 처분 | 룰 기반 스코어링(`P = α·F + β·T + γ·G`)으로 대체. 이의신청 병행 중 |
 | DART 재무 데이터 | ⚠️ 비상장사 null | `company_features.parquet` 재무 필드 전체 null. F 점수 기본값 처리 예정 |
 | KIPRIS extractor | ⚠️ mock 모드 | API 키 설정 시 자동으로 실전 전환. 실전 호출 검증 완료 |
-| MAS 에이전트 | 🔲 구현 예정 | LangGraph 기반 오케스트레이터·스코어링·SHAP 에이전트 |
-| FastAPI 서버 | 🔲 구현 예정 | `/match`, `/feedback/{program_id}` |
+| MAS 에이전트 | ✅ 구현 완료 | LangGraph 오케스트레이터·임베딩·스코어링·SHAP 에이전트 |
+| FastAPI 서버 | ✅ 구현 완료 | `/api/v1/match`, `/api/v1/feedback/{program_id}` |
+| 챗봇 UI | ✅ 구현 완료 | Next.js + Zustand 기반 대화형 인터페이스 |
 
 ---
 

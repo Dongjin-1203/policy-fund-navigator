@@ -214,4 +214,25 @@ analysis_results.json
 **/.DS_Store
 
 # 로컬 DB 제외
-chroma_db/ 
+chroma_db/
+
+# 데이터 파일 (로컬 캐시)
+*.parquet
+scoring_params.json
+mlruns/
+
+# 개발 로그
+docs/devlog/
+
+# Node
+node_modules/
+frontend/.next/
+frontend/out/
+
+# IDE
+.idea/
+.vscode/
+
+# Next.js 로컬 환경
+.env.local
+.env.*.local 

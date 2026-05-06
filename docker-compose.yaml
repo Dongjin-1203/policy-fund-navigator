@@ -15,7 +15,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
   volumes:
-    - ./dags:/opt/airflow/dags
+    - ./backend/dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
   user: "${AIRFLOW_UID:-50000}:0"
@@ -27,6 +27,27 @@ x-airflow-common: &airflow-common
       condition: service_healthy
 
 services:
+
+  # ── MLflow ──────────────────────────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.1
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 데이터베이스 / 메시지 브로커 ─────────────────────────────────────────────
   postgres:
     image: postgres:15
     environment:
@@ -34,7 +55,7 @@ services:
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
@@ -44,8 +65,8 @@ services:
 
   redis:
     image: redis:7
-    expose:
-      - 6379
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -54,6 +75,7 @@ services:
       start_period: 30s
     restart: always
 
+  # ── Airflow ──────────────────────────────────────────────────────────────────
   airflow-webserver:
     <<: *airflow-common
     command: webserver
@@ -112,8 +134,9 @@ services:
     command:
       - -c
       - |
-        mkdir -p /sources/logs /sources/dags /sources/plugins
-        chown -R "${AIRFLOW_UID:-50000}:0" /sources/{logs,dags,plugins}
+        mkdir -p /sources/logs /sources/backend/dags /sources/plugins
+        chown -R "${AIRFLOW_UID:-50000}:0" /sources/{logs,plugins}
+        chown -R "${AIRFLOW_UID:-50000}:0" /sources/backend/dags
         exec /entrypoint airflow version
     environment:
       <<: *airflow-common-env
@@ -125,5 +148,30 @@ services:
     volumes:
       - .:/sources
 
+  # ── FastAPI 백엔드 ────────────────────────────────────────────────────────────
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  # ── Next.js 프론트엔드 ────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
 volumes:
-  postgres-db-volume:
+  mlflow-data:
+  postgres-data:
