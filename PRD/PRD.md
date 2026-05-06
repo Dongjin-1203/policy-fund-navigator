@@ -1,9 +1,9 @@
 # PRD — 중진공 AI 자금 네비게이터
 **policy-fund-navigator**
-버전: 0.4 (초안)
-작성일: 2026-04-29
+버전: 1.0
+작성일: 2026-05-07
 작성자: 지동진
-상태: 검토 중
+상태: 완료
 
 ---
 
@@ -70,12 +70,13 @@
 | 구분 | 소스 | 수집 방법 | 상태 |
 |---|---|---|---|
 | 기업 재무 (상장사·외감법인) | OpenDART | 온디맨드 실시간 조회 + 주간 갱신 | 완료 |
-| 기업 재무 (비상장) | 사용자 직접 입력 | FastAPI 요청 바디 | 구현 예정 |
+| 기업 재무 (비상장) | 사용자 직접 입력 | FastAPI 요청 바디 | 완료 |
 | 특허·실용신안 | KIPRIS | 배치 수집 + 주간 갱신 | 완료 |
 | 벤처기업 인증 | smes.go.kr | 배치 수집 + 주간 갱신 | 구현 예정 |
 | 이노비즈 인증 | innobiz.net | 배치 수집 + 주간 갱신 | 구현 예정 |
 | 사업 공고 목록 | 기업마당(bizinfo) | 배치 수집 | 완료 |
-| 공고문 원본 | 중진공 홈페이지 | 크롤러 | 완료 |
+| 공고문 원본 | 중진공 홈페이지 | 크롤러 | **완료 (2026-05-07 기준 14건 수집)** |
+| program_features.parquet | 병합·LLM 파싱 결과 | merge.py + processor.py | **80행, 54건 모집 중** |
 
 > **[수혜이력 비공개 처분 관련]**
 > 중진공 정책자금 수혜이력 데이터가 「공공기관의 정보공개에 관한 법률」
@@ -246,17 +247,20 @@ P = α·F + β·T + γ·G
 
 | 레이어 | 기술 | 비고 |
 |---|---|---|
-| ETL 오케스트레이션 | Apache Airflow 2.9 + Docker Compose | |
-| 스토리지 | AWS S3 | |
-| 데이터 처리 | pandas, pyarrow | |
-| 임베딩 | ko-sentence-transformers | |
+| ETL 오케스트레이션 | Apache Airflow 2.9 + Docker Compose | 완료 |
+| 스토리지 | AWS S3 | 완료 |
+| 데이터 처리 | pandas, pyarrow | 완료 |
+| 임베딩 | ko-sentence-transformers (snunlp/KR-SBERT-V40K-klueNLI-augSTS) | 완료 |
+| 벡터 DB | ChromaDB | 완료 |
 | 스코어링 | 룰 기반 (α·F + β·T + γ·G) | 실데이터 확보 시 LightGBM 전환 예정 |
-| 실험 관리 | MLflow | 스코어링 파라미터 버전 관리 용도 |
+| 실험 관리 | MLflow — Docker 서비스로 운영, scoring_params v1 등록 완료 | 완료 |
 | XAI | 가중치 기여도 직접 계산 | 실데이터 확보 시 SHAP 전환 예정 |
-| MAS 프레임워크 | LangGraph | |
-| LLM API | Gemini API | |
-| API 서버 | FastAPI | |
+| MAS 프레임워크 | LangGraph | 완료 |
+| LLM API | Gemini 2.5-flash | 완료 |
+| API 서버 | FastAPI | 완료 |
+| 프론트엔드 | Next.js 15 + Zustand | 완료 |
 | 크롤링 | BeautifulSoup4, requests | JS 렌더링 불필요 확인 |
+| 컨테이너 | Docker Compose (mlflow + airflow + backend + frontend) | 완료 |
 
 ---
 
@@ -315,6 +319,8 @@ s3://[BUCKET_NAME]/
 | 비상장 기업 재무 | 공개 DB 없음 | 사용자 직접 입력 |
 | 벤처·이노비즈 인증 | smes.go.kr, innobiz.net | 배치 수집 구현 예정 |
 | 신용등급 | KODATA 유료 | 추후 고도화 예정 |
+| 변경공고 파싱 실패 | 2026-287호 등 변경공고 processor.py 파싱 실패 | **팀원(박지윤) 확인 필요 — GovernmentNoticeLoader 예외 처리 보완 요청** |
+| apply_end 만료 | program_features.parquet의 apply_end가 과거 날짜인 경우 Hard Filter에서 전체 탈락 | apply_end 필터 로직 재검토 필요 (현재 54건 중 다수 만료) |
 
 ---
 

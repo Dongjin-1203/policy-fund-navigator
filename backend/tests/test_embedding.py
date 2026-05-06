@@ -220,10 +220,10 @@ def _make_store_result_with_candidates():
 
 
 @patch('agents.embedding.agent._load_programs_from_s3', return_value=[])
-@patch('agents.embedding.agent.PolicyVectorStore')
-def test_embedding_node_no_candidates_sets_error(mock_store_cls, mock_s3):
+@patch('agents.embedding.agent._shared_vector_store')
+def test_embedding_node_no_candidates_sets_error(mock_store, mock_s3):
     """후보 없으면 error 설정, candidate_programs 빈 리스트."""
-    mock_store_cls.return_value.search_for_agent.return_value = _make_empty_store_result()
+    mock_store.search_for_agent.return_value = _make_empty_store_result()
 
     result = embedding_node({**_BASE_STATE})
 
@@ -233,12 +233,10 @@ def test_embedding_node_no_candidates_sets_error(mock_store_cls, mock_s3):
 
 
 @patch('agents.embedding.agent._load_programs_from_s3', return_value=[])
-@patch('agents.embedding.agent.PolicyVectorStore')
-def test_embedding_node_with_candidates(mock_store_cls, mock_s3):
+@patch('agents.embedding.agent._shared_vector_store')
+def test_embedding_node_with_candidates(mock_store, mock_s3):
     """후보 있으면 candidate_programs 채워지고 error None."""
-    mock_store_cls.return_value.search_for_agent.return_value = (
-        _make_store_result_with_candidates()
-    )
+    mock_store.search_for_agent.return_value = _make_store_result_with_candidates()
 
     result = embedding_node({**_BASE_STATE})
 
@@ -248,10 +246,10 @@ def test_embedding_node_with_candidates(mock_store_cls, mock_s3):
 
 
 @patch('agents.embedding.agent._load_programs_from_s3', return_value=[])
-@patch('agents.embedding.agent.PolicyVectorStore')
-def test_embedding_node_store_exception_sets_error(mock_store_cls, mock_s3):
+@patch('agents.embedding.agent._shared_vector_store')
+def test_embedding_node_store_exception_sets_error(mock_store, mock_s3):
     """PolicyVectorStore 예외 발생 시 error 설정."""
-    mock_store_cls.return_value.search_for_agent.side_effect = RuntimeError('DB 접속 실패')
+    mock_store.search_for_agent.side_effect = RuntimeError('DB 접속 실패')
 
     result = embedding_node({**_BASE_STATE})
 
@@ -260,8 +258,8 @@ def test_embedding_node_store_exception_sets_error(mock_store_cls, mock_s3):
 
 
 @patch('agents.embedding.agent._load_programs_from_s3')
-@patch('agents.embedding.agent.PolicyVectorStore')
-def test_embedding_node_hard_filter_intersects(mock_store_cls, mock_s3):
+@patch('agents.embedding.agent._shared_vector_store')
+def test_embedding_node_hard_filter_intersects(mock_store, mock_s3):
     """S3에서 로드된 프로그램 중 hard_filter 탈락 program_id는 candidates에서 제외."""
     # S3에 P001(통과), P002(업종 탈락) 두 개 로드
     mock_s3.return_value = [
@@ -282,7 +280,7 @@ def test_embedding_node_hard_filter_intersects(mock_store_cls, mock_s3):
         }
         return {'doc': MagicMock(), 'score': 0.9, 'reasons': [], 'meta_data': meta, 'caution_notes': []}
 
-    mock_store_cls.return_value.search_for_agent.return_value = {
+    mock_store.search_for_agent.return_value = {
         'green': [make_item('P001'), make_item('P002')],
         'yellow': [],
         'red': [],
