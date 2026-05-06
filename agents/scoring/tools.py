@@ -1,5 +1,8 @@
-import re
+import io
+import json
 import logging
+import os
+import re
 from datetime import datetime
 from typing import Tuple
 
@@ -150,7 +153,9 @@ def calc_policy_score(company_features: dict) -> float:
 
 
 def load_scoring_params() -> Tuple[float, float, float]:
-    """α, β, γ 파라미터 로드.
+    """선형회귀로 추정된 α, β, γ 로드.
+
+    S3 → 로컬 파일 → 초기값 순으로 fallback.
 
     Returns:
         (alpha, beta, gamma) — 합이 1.0
@@ -162,6 +167,47 @@ def load_scoring_params() -> Tuple[float, float, float]:
         alpha = float(run.data.params['alpha'])
         ...
     """
+    # S3에서 로드 시도
+    try:
+        import boto3
+        bucket = os.environ.get('S3_BUCKET_NAME')
+        if not bucket:
+            raise ValueError('S3_BUCKET_NAME 미설정')
+        s3 = boto3.client('s3')
+        obj = s3.get_object(Bucket=bucket, Key='processed/scoring_params.json')
+        params = json.loads(obj['Body'].read())
+        alpha = float(params['alpha'])
+        beta = float(params['beta'])
+        gamma = float(params['gamma'])
+        logger.info(
+            "파라미터 로드 (S3): α=%.4f, β=%.4f, γ=%.4f",
+            alpha, beta, gamma,
+        )
+        return alpha, beta, gamma
+    except Exception as exc:
+        logger.warning("S3 파라미터 로드 실패: %s", exc)
+
+    # 로컬 파일에서 로드 시도
+    local_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'scoring_params.json',
+    )
+    try:
+        with open(local_path, encoding='utf-8') as f:
+            params = json.load(f)
+        alpha = float(params['alpha'])
+        beta = float(params['beta'])
+        gamma = float(params['gamma'])
+        logger.info(
+            "파라미터 로드 (로컬): α=%.4f, β=%.4f, γ=%.4f",
+            alpha, beta, gamma,
+        )
+        return alpha, beta, gamma
+    except Exception as exc:
+        logger.warning("로컬 파라미터 로드 실패: %s", exc)
+
+    # 초기값 fallback
+    logger.info("파라미터 초기값 사용: α=0.4, β=0.3, γ=0.3")
     return 0.4, 0.3, 0.3
 
 
