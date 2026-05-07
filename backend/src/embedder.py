@@ -269,8 +269,9 @@ class PolicyVectorStore:
                 red_reasons.append("industry_limit_hit (제외 세부코드에 해당)")
 
             # 지역 (region) 불일치
-            meta_region = json.loads(meta.get('region_raw', '["전국"]'))
-            if meta_region != '전국' and u_region and not any(u_region in r for r in meta_region):
+            # meta_region이 빈 리스트면 지역 제한 없음(전국)으로 처리
+            meta_region = json.loads(meta.get('region_raw', '[]'))
+            if meta_region and '전국' not in meta_region and u_region and not any(u_region in r for r in meta_region):
                 red_reasons.append(f"region_mismatch (Required: {meta_region})")
 
             # 업력(max_buisness_age) 초과

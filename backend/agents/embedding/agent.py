@@ -211,17 +211,39 @@ def embedding_node(state: PolicyFundState) -> PolicyFundState:
     store = _shared_vector_store
     if store is None:
         if PolicyVectorStore is None:
-            logger.warning("PolicyVectorStore 미초기화 — src.embedder import 실패, Soft Filter 건너뜀")
+            logger.warning("PolicyVectorStore 미초기화 — src.embedder import 실패, Hard Filter 결과로 폴백")
         else:
-            logger.warning("PolicyVectorStore 미초기화 — lifespan 주입 전, Soft Filter 건너뜀")
-        return {
-            **state,
-            'candidate_programs': [],
-            'error': 'PolicyVectorStore 미초기화',
-        }
+            logger.warning("PolicyVectorStore 미초기화 — lifespan 주입 전, Hard Filter 결과로 폴백")
+        # Soft Filter 없이 Hard Filter 통과 결과 상위 50개를 후보로 사용
+        fallback = list(parquet_by_id.values())[:50]
+        if not fallback:
+            return {
+                **state,
+                'candidate_programs': [],
+                'error': 'PolicyVectorStore 미초기화 및 프로그램 목록 없음',
+            }
+        candidates = [
+            {
+                'program_id': str(p.get('program_id', '')),
+                'program_name': p.get('program_name', ''),
+                'announcement_title': p.get('program_name', ''),
+                'category': p.get('category', ''),
+                'max_support': p.get('max_support', 0),
+                'interest_rate': p.get('interest_rate', ''),
+                'apply_start': str(p.get('apply_start', '')),
+                'apply_end': str(p.get('apply_end', '')),
+                'embedding_score': 0.0,
+                'filter_status': 'yellow',
+                'reasons': [],
+                'caution_notes': ['임베딩 필터 미적용'],
+            }
+            for p in fallback
+        ]
+        logger.info("embedding_node(폴백): company_id=%s candidates=%d", company_id, len(candidates))
+        return {**state, 'candidate_programs': candidates, 'error': None}
 
     try:
-        result = store.search_for_agent(user_profile, query, top_k=20)
+        result = store.search_for_agent(user_profile, query, top_k=100)
     except Exception as exc:
         logger.error("PolicyVectorStore 검색 실패: %s", exc)
         return {
