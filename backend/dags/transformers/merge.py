@@ -387,11 +387,18 @@ class ProgramFeatureMerger:
     def _load_all_requirements(self) -> dict[str, dict]:
         """S3 embeddings/requirements_db/*/*.json 모두 로드.
 
+        중첩 포맷 (programs 배열 있음): 파일명 stem을 slno 키로 저장.
+        평탄화 포맷 (programs 배열 없음): source_file 또는 stem의 _N suffix 제거로
+            slno를 추출하고, 동일 slno의 파일들을 {'programs': [...]} 로 묶어서 저장.
+        중첩 포맷과 평탄화 포맷이 같은 slno에 공존하면 중첩 포맷을 우선한다.
+
         Returns:
-            {slno: parsed_result} 딕셔너리 — S3 파일명 stem이 slno
+            {slno: {'programs': [...]}} 형태의 딕셔너리
         """
         paginator = self._s3.get_paginator('list_objects_v2')
         req_map: dict[str, dict] = {}
+        flat_buffer: dict[str, list[dict]] = {}  # slno → 평탄화 레코드 리스트
+
         for page in paginator.paginate(Bucket=self._bucket, Prefix='embeddings/requirements_db/'):
             for obj in page.get('Contents', []):
                 key = obj['Key']
@@ -400,12 +407,30 @@ class ProgramFeatureMerger:
                 try:
                     resp = self._s3.get_object(Bucket=self._bucket, Key=key)
                     data: dict = json.loads(resp['Body'].read().decode('utf-8'))
-                    # S3 키 파일명 stem이 slno: embeddings/requirements_db/{date}/{slno}.json
-                    slno_key = key.split('/')[-1].rsplit('.', 1)[0]
-                    if slno_key:
-                        req_map[slno_key] = data
+                    stem = key.split('/')[-1].rsplit('.', 1)[0]
+
+                    if 'programs' in data:
+                        # 중첩 포맷: 파일명 stem을 slno 키로 직접 사용
+                        req_map[stem] = data
+                    else:
+                        # 평탄화 포맷: data['source_file'] 우선, 없으면 stem 끝의 _N 제거
+                        slno = str(data.get('source_file', '') or '').strip() \
+                               or stem.rsplit('_', 1)[0]
+                        if slno:
+                            flat_buffer.setdefault(slno, []).append(data)
                 except Exception as exc:
                     logger.warning('requirements_db 로드 실패 key=%s: %s', key, exc)
+
+        # 중첩 포맷이 없는 slno에 대해서만 평탄화 레코드를 programs 배열로 묶어서 등록
+        for slno, flat_progs in flat_buffer.items():
+            if slno not in req_map:
+                req_map[slno] = {'programs': flat_progs}
+            else:
+                logger.debug(
+                    'slno=%s: 중첩 포맷 우선 적용 (평탄화 파일 %d건 무시)',
+                    slno, len(flat_progs),
+                )
+
         logger.info('requirements_db 로드 완료: %d건', len(req_map))
         return req_map
 
@@ -454,22 +479,32 @@ class ProgramFeatureMerger:
                 continue
 
             join_ok += 1
-            programs: list[dict] = req_data.get('programs') or [{}]
+            # programs 배열이 없으면 req_data 자체를 단일 프로그램으로 처리 (평탄화 포맷 폴백)
+            programs: list[dict] = req_data.get('programs') or [req_data]
             multi = len(programs) > 1
 
             for i, prog in enumerate(programs):
                 pid = f'{slno}_{i + 1}' if multi else slno
                 rows.append({
                     'program_id': pid,
-                    'program_name': prog.get('sub_title') or title,
-                    'category': prog.get('program_category'),
+                    # 신 포맷: program_name / category, 구 포맷: sub_title / program_category
+                    'program_name': (
+                        prog.get('program_name') or prog.get('sub_title') or title
+                    ),
+                    'category': prog.get('category') or prog.get('program_category'),
                     'max_support': self._to_str(prog.get('max_support')),
                     'interest_rate': self._to_str(prog.get('interest_rate')),
                     'apply_start': prog.get('apply_start'),
                     'apply_end': prog.get('apply_end'),
-                    'industry_limit': self._to_str(prog.get('industry_limit')),
+                    # 구 포맷: industry_limit(텍스트 리스트), 신 포맷: target_industry_codes
+                    'industry_limit': self._to_str(
+                        prog.get('industry_limit') or prog.get('target_industry_codes')
+                    ),
                     'debt_ratio_limit': self._to_str(prog.get('debt_ratio_limit')),
-                    'requirements': self._to_str(prog.get('requirements')),
+                    # 구 포맷: requirements(리스트), 신 포맷: target_company_types
+                    'requirements': self._to_str(
+                        prog.get('requirements') or prog.get('target_company_types')
+                    ),
                     'source_date': source_date,
                 })
 
