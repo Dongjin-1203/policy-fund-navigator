@@ -242,6 +242,27 @@ def create_analysis_chain():
     제시된 지원사업 공고에서 추출된 텍스트를 분석하여, 기업 데이터베이스와 매칭 가능한 정량적/정성적 정보를 추출하세요.
     만약 한 공고문에 여러 개의 지원 세부 사업(트랙)이 포함되어 있다면 각각 분리하여 리스트로 만드세요.
 
+    ============================================================
+    [매칭 핵심 필드 — 반드시 추출, 절대 누락 금지]
+    아래 6개 필드는 기업-사업 매칭의 핵심입니다. 공고문에서 가장 먼저 찾아 채우세요.
+    없는 경우에만 null 또는 빈 배열로 기재하고, 있다면 반드시 값을 채워야 합니다.
+
+    ① max_support     : 최대 융자/지원 금액 (정수, 원 단위)
+                        예) "기업당 최대 60억원" → 6000000000
+                        예) "운전자금 최대 5억원, 시설자금 최대 60억원" → 6000000000 (최댓값)
+    ② interest_rate   : 금리 조건 (문자열 그대로 추출)
+                        예) "정책자금 기준금리(변동) - 0.3%p", "연 2.9%"
+    ③ debt_ratio_limit: 지원 대상 기업의 부채비율 상한 (숫자 %, 정수)
+                        예) "부채비율 500% 이하" → 500
+                        업종별 별도 기준이 명시된 경우 가장 높은(관대한) 값을 기재하세요.
+    ④ apply_start     : 접수 시작일 (YYYY-MM-DD)
+    ⑤ apply_end       : 접수 마감일 (YYYY-MM-DD)
+                        "예산 소진 시까지" / "상시 접수" → "9999-12-31"
+    ⑥ requirements    : 지원 자격 요건 전체를 문자열 배열로 추출
+                        업력, 기업 규모, 인증 조건, 재무 조건 등 포함
+                        예) ["업력 7년 미만", "상시 근로자 5인 이상", "ESG 자가진단 실시"]
+    ============================================================
+
     [표 데이터 해석 가이드]
     1. PDF 마크다운 표 (| --- |)
         - 행과 열의 관계를 엄격히 준수하세요.
@@ -330,6 +351,12 @@ def create_analysis_chain():
         {{
         "program_name": "string",
         "category": "string",
+        "max_support": integer or null,
+        "interest_rate": "string" or null,
+        "debt_ratio_limit": number or null,
+        "apply_start": "YYYY-MM-DD" or null,
+        "apply_end": "YYYY-MM-DD" or null,
+        "requirements": ["string"],
         "target_company_types": ["string"],
         "target_industry_text": ["string"],
         "target_industry_codes": ["string"],
@@ -341,7 +368,6 @@ def create_analysis_chain():
         "caution_notes": ["string"],
         "region_raw": ["string"],
         "support_description": ["string"],
-        "max_support": integer or null,
         "min_export_usd": integer or null,
         "max_export_usd": integer or null,
         "min_business_age": integer or null,
@@ -350,12 +376,7 @@ def create_analysis_chain():
         "max_revenue": integer or null,
         "min_employees": integer or null,
         "max_employees": integer or null,
-        "requirements": ["string"],
-        "technical_terms": ["string"],
-        "debt_ratio_limit": number or null,
-        "interest_rate": "string" or null,
-        "apply_start": "YYYY-MM-DD",
-        "apply_end": "YYYY-MM-DD"
+        "technical_terms": ["string"]
         }}
         ]
     }}
