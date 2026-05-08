@@ -1,5 +1,24 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+
+def _to_float_or_none(v) -> Optional[float]:
+    """'None' 문자열·빈값·비숫자를 None으로, 나머지는 float으로 변환."""
+    if v is None or (isinstance(v, str) and v.strip().lower() in ('none', '')):
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _to_int_or_none(v) -> Optional[int]:
+    if v is None or (isinstance(v, str) and v.strip().lower() in ('none', '')):
+        return None
+    try:
+        return int(float(v))
+    except (ValueError, TypeError):
+        return None
 
 
 class ScoreBreakdown(BaseModel):
@@ -33,10 +52,26 @@ class ProgramItem(BaseModel):
     program_id: str
     program_name: str
     category: str
-    score: float
+    score: float = 0.0
     max_support: Optional[int] = None
     interest_rate: Optional[float] = None
     apply_end: Optional[str] = None
+
+    @field_validator('score', mode='before')
+    @classmethod
+    def _parse_score(cls, v):
+        result = _to_float_or_none(v)
+        return result if result is not None else 0.0
+
+    @field_validator('max_support', mode='before')
+    @classmethod
+    def _parse_max_support(cls, v):
+        return _to_int_or_none(v)
+
+    @field_validator('interest_rate', mode='before')
+    @classmethod
+    def _parse_interest_rate(cls, v):
+        return _to_float_or_none(v)
 
 
 class MatchResponse(BaseModel):
