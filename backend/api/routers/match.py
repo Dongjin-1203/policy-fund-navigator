@@ -57,12 +57,34 @@ def _build_initial_state(req: MatchRequest) -> dict:
     }
 
 
+_INVALID_DATE_STRINGS = frozenset({'none', 'nan', ''})
+
+
+def _clean_apply_end(v) -> Optional[str]:
+    """'None'·'nan'·빈값을 None으로 정규화. 유효한 날짜 문자열은 그대로 반환."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if s.lower() in _INVALID_DATE_STRINGS:
+        return None
+    return s
+
+
 def _parse_response(result: dict) -> MatchResponse:
     """MAS 최종 state → MatchResponse 변환."""
     resp = result.get("response") or {}
     ranked_raw = resp.get("ranked_programs") or []
     sb_raw = resp.get("score_breakdown") or {}
     contrib_raw = result.get("contribution") or {}
+
+    # program_id 기준 중복 제거 (score 높은 순으로 이미 정렬되어 있으므로 첫 번째 유지)
+    seen_ids: set[str] = set()
+    deduped_raw = []
+    for p in ranked_raw:
+        pid = p.get("program_id", "")
+        if pid and pid not in seen_ids:
+            seen_ids.add(pid)
+            deduped_raw.append(p)
 
     ranked_programs = [
         ProgramItem(
@@ -72,9 +94,9 @@ def _parse_response(result: dict) -> MatchResponse:
             score=p.get("score", 0.0),
             max_support=p.get("max_support"),
             interest_rate=p.get("interest_rate"),
-            apply_end=str(p["apply_end"]) if p.get("apply_end") else None,
+            apply_end=_clean_apply_end(p.get("apply_end")),
         )
-        for p in ranked_raw
+        for p in deduped_raw
     ]
 
     score_breakdown: Optional[ScoreBreakdown] = None
@@ -100,7 +122,7 @@ def _parse_response(result: dict) -> MatchResponse:
     return MatchResponse(
         company_id=resp.get("company_id", ""),
         status=resp.get("status", "unknown"),
-        matched_count=resp.get("matched_count", 0),
+        matched_count=len(ranked_programs),
         ranked_programs=ranked_programs,
         score_breakdown=score_breakdown,
         contribution=contribution,

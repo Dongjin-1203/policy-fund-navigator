@@ -54,7 +54,7 @@ class ProgramItem(BaseModel):
     category: str
     score: float = 0.0
     max_support: Optional[int] = None
-    interest_rate: Optional[float] = None
+    interest_rate: Optional[str] = None
     apply_end: Optional[str] = None
 
     @field_validator('score', mode='before')
@@ -71,7 +71,9 @@ class ProgramItem(BaseModel):
     @field_validator('interest_rate', mode='before')
     @classmethod
     def _parse_interest_rate(cls, v):
-        return _to_float_or_none(v)
+        if v is None or (isinstance(v, str) and v.strip().lower() in ('none', 'nan', '')):
+            return None
+        return str(v)
 
 
 class MatchResponse(BaseModel):

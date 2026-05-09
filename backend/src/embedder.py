@@ -316,12 +316,17 @@ class PolicyVectorStore:
 
             # 마감일(apply_end) 지남
             meta_end_str = meta.get('apply_end', '9999-12-31')
-            try: 
-                meta_end = datetime.strptime(meta_end_str, '%Y-%m-%d')
-                if meta_end < today:
-                    red_reasons.append(f"deadline_passed")
-            except ValueError:
-                logger.error(f"날짜 포맷 오류 발생: {meta_end_str}")
+            _invalid = {'none', 'nan', ''}
+            if not meta_end_str or str(meta_end_str).strip().lower() in _invalid:
+                # 빈값·None·nan → 마감일 정보 없음, 통과(제한 없음)로 처리
+                pass
+            else:
+                try:
+                    meta_end = datetime.strptime(meta_end_str, '%Y-%m-%d')
+                    if meta_end < today:
+                        red_reasons.append("deadline_passed")
+                except ValueError:
+                    logger.warning("apply_end 날짜 포맷 오류 — 통과 처리: %s", meta_end_str)
 
             # ----- YELLOW: 조건부 대기 (수치 조정이 가능) ---
             # 업력 (min_business_age) 소폭(1년) 미달
