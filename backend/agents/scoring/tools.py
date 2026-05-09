@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import math
 import os
 import re
 from datetime import datetime
@@ -17,11 +18,11 @@ _F_CASH_WEIGHT   = 0.3
 _F_PROFIT_WEIGHT = 0.2
 
 # ── 기술 점수 가중치 ──────────────────────────────────────
-# IPC코드, 최신성은 KIPRIS 파이프라인 연동 후
-# 데이터 수집 시 복원 예정 (현재 0으로 설정)
-_T_PATENT_WEIGHT  = 1.0  # 데이터 없는 항목 재배분
-_T_IPC_WEIGHT     = 0.0  # KIPRIS ipc_codes 수집 후 복원
-_T_RECENCY_WEIGHT = 0.0  # KIPRIS latest_patent_year 수집 후 복원
+# 데이터 미수집 항목(ipc_codes, latest_patent_year)은
+# calc_tech_score() 내에서 patent_score에 동적 재배분됨
+_T_PATENT_WEIGHT  = 0.6
+_T_IPC_WEIGHT     = 0.2
+_T_RECENCY_WEIGHT = 0.2
 
 # ── 정책 가점 가중치 ──────────────────────────────────────
 # 정책 중요도 순서: 벤처 > 이노비즈 > 청년고용 > 신용등급
@@ -35,6 +36,66 @@ _CREDIT_WEIGHT  = 0.1
 _DEBT_RATIO_BENCHMARK = 300
 # 특허 5건: 중소기업 평균 수준 기준값 (임의 설정)
 _PATENT_NORM = 5
+
+
+def _safe_numeric(v, default=None):
+    """NaN/None/비숫자 → default 반환. 정상값은 float 반환."""
+    if v is None:
+        return default
+    try:
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
+    except (TypeError, ValueError):
+        return default
+
+
+def _fetch_patent_count_from_s3(company_features: dict) -> int | None:
+    """S3 raw/kipris/ 에서 corp_name 기반 최신 patent_count 조회.
+
+    patent_count가 company_features에 없을 때 폴백으로 호출.
+    S3 키: raw/kipris/{date}/{safe_corp_name}.json
+    """
+    corp_name = (
+        company_features.get('corp_name') or
+        company_features.get('company_name')
+    )
+    if not corp_name:
+        logger.debug('KIPRIS S3 조회 스킵: corp_name 없음')
+        return None
+
+    bucket = os.environ.get('S3_BUCKET_NAME', '')
+    if not bucket:
+        return None
+
+    try:
+        import boto3
+        s3 = boto3.client('s3')
+        safe_name = corp_name.replace('/', '_').replace(' ', '_')
+
+        resp = s3.list_objects_v2(Bucket=bucket, Prefix='raw/kipris/', Delimiter='/')
+        date_folders = sorted(
+            [cp['Prefix'].rstrip('/').split('/')[-1] for cp in resp.get('CommonPrefixes', [])],
+            reverse=True,
+        )
+        for date_str in date_folders:
+            key = f'raw/kipris/{date_str}/{safe_name}.json'
+            try:
+                obj = s3.get_object(Bucket=bucket, Key=key)
+                data = json.loads(obj['Body'].read())
+                count = data.get('patent_count')
+                if count is not None:
+                    logger.info(
+                        'KIPRIS S3 폴백 성공: corp=%s patent_count=%d (date=%s)',
+                        corp_name, count, date_str,
+                    )
+                    return int(count)
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.warning('KIPRIS S3 조회 실패 corp=%s: %s', corp_name, exc)
+    return None
 
 
 def calc_financial_score(company_features: dict) -> float:
@@ -94,35 +155,51 @@ def calc_financial_score(company_features: dict) -> float:
 def calc_tech_score(company_features: dict) -> float:
     """기술 점수 계산 (0.0 ~ 1.0)
 
-    구성:
-    - 특허 보유수 (_T_PATENT_WEIGHT=1.0): _PATENT_NORM(5건) 기준 정규화,
-      5건 이상 = 1.0
-    - IPC 코드 존재 여부 (_T_IPC_WEIGHT=0.0): KIPRIS 연동 후 활성화 예정
-    - 특허 출원일 최신성 (_T_RECENCY_WEIGHT=0.0): KIPRIS 연동 후 활성화 예정
+    구성 (기본 가중치):
+    - 특허 보유수 (_T_PATENT_WEIGHT=0.6): _PATENT_NORM(5건) 기준 정규화
+    - IPC 코드 존재 여부 (_T_IPC_WEIGHT=0.2): KIPRIS ipc_codes 필드
+    - 특허 출원일 최신성 (_T_RECENCY_WEIGHT=0.2): 3년 이내 = 1.0
 
-    KIPRIS 파이프라인 연동 완료 시 가중치 복원:
-        _T_PATENT_WEIGHT=0.6, _T_IPC_WEIGHT=0.2, _T_RECENCY_WEIGHT=0.2
-    해당 시점에 company_features에 ipc_codes, latest_patent_year 필드 추가 필요.
+    데이터 미수집 처리:
+    - patent_count None/NaN → S3 KIPRIS 폴백 조회 후에도 없으면 0.0
+    - ipc_codes / latest_patent_year 없으면 해당 가중치를 patent_score에 재배분
     """
-    patent_count = company_features.get('patent_count')
-    ipc_codes = company_features.get('ipc_codes')
-    latest_patent_year = company_features.get('latest_patent_year')
+    # ── patent_count: NaN 방어 + S3 폴백 ──
+    patent_count = _safe_numeric(company_features.get('patent_count'))
+    if patent_count is None:
+        patent_count = _fetch_patent_count_from_s3(company_features)
+        if patent_count is not None:
+            patent_count = float(patent_count)
 
     patent_score = (
         min(1.0, patent_count / _PATENT_NORM)
         if (patent_count is not None and patent_count >= 0) else 0.0
     )
-    ipc_score = 1.0 if ipc_codes else 0.0
 
+    # ── IPC 코드 ──
+    ipc_codes = company_features.get('ipc_codes')
+    ipc_available = bool(ipc_codes)
+    ipc_score = 1.0 if ipc_available else 0.0
+
+    # ── 특허 최신성 ──
+    latest_patent_year = _safe_numeric(company_features.get('latest_patent_year'))
+    recency_available = latest_patent_year is not None
     recency_score = 0.0
-    if latest_patent_year is not None:
+    if recency_available:
         current_year = datetime.now().year
-        recency_score = 1.0 if (current_year - latest_patent_year) <= 3 else 0.0
+        recency_score = 1.0 if (current_year - int(latest_patent_year)) <= 3 else 0.0
+
+    # ── 데이터 미수집 항목의 가중치를 patent_score에 재배분 ──
+    effective_patent_weight = _T_PATENT_WEIGHT
+    if not ipc_available:
+        effective_patent_weight += _T_IPC_WEIGHT
+    if not recency_available:
+        effective_patent_weight += _T_RECENCY_WEIGHT
 
     score = (
-        _T_PATENT_WEIGHT  * patent_score +
-        _T_IPC_WEIGHT     * ipc_score +
-        _T_RECENCY_WEIGHT * recency_score
+        effective_patent_weight * patent_score +
+        (_T_IPC_WEIGHT     * ipc_score     if ipc_available     else 0.0) +
+        (_T_RECENCY_WEIGHT * recency_score if recency_available else 0.0)
     )
     return round(min(1.0, score), 4)
 
