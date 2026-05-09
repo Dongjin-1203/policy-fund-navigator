@@ -221,8 +221,6 @@ chroma_db/
 scoring_params.json
 mlruns/
 
-# 개발 로그
-docs/devlog/
 
 # Node
 node_modules/

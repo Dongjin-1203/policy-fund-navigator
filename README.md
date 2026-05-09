@@ -251,21 +251,6 @@ python dags/extractors/crawler.py --mock
 
 ---
 
-## 7. 현재 제약사항
-
-> ⚠️ 아래 항목은 현재 제한이 있거나 구현 진행 중입니다.
-
-| 항목 | 상태 | 비고 |
-|---|---|---|
-| 수혜이력 데이터 | ❌ 비공개 처분 | 룰 기반 스코어링(`P = α·F + β·T + γ·G`)으로 대체. 이의신청 병행 중 |
-| DART 재무 데이터 | ⚠️ 비상장사 null | `company_features.parquet` 재무 필드 전체 null. F 점수 기본값 처리 예정 |
-| KIPRIS extractor | ⚠️ mock 모드 | API 키 설정 시 자동으로 실전 전환. 실전 호출 검증 완료 |
-| MAS 에이전트 | ✅ 구현 완료 | LangGraph 오케스트레이터·임베딩·스코어링·SHAP 에이전트 |
-| FastAPI 서버 | ✅ 구현 완료 | `/api/v1/match`, `/api/v1/feedback/{program_id}` |
-| 챗봇 UI | ✅ 구현 완료 | Next.js + Zustand 기반 대화형 인터페이스 |
-
----
-
 ## 8. 팀 구성
 
 | 역할 | 담당자 | 담당 영역 |
@@ -291,17 +276,49 @@ python dags/extractors/crawler.py --mock
 
 | 레이어 | 기술 |
 |---|---|
-| ETL 오케스트레이션 | Apache Airflow 2.9 + Docker Compose |
+| ETL 오케스트레이션 | Apache Airflow 2.9.0 + Docker Compose |
 | 스토리지 | AWS S3 (날짜 파티셔닝: `raw/{source}/YYYY-MM-DD/`) |
 | 데이터 처리 | pandas, pyarrow |
 | LLM 파싱 | LangChain LCEL + Gemini 2.5-flash |
 | MAS 프레임워크 | LangGraph |
 | 스코어링 | 룰 기반 (`P = α·F + β·T + γ·G`) → 실데이터 확보 시 LightGBM 전환 예정 |
 | XAI | 가중치 기여도 직접 계산 → 실데이터 확보 시 SHAP 전환 예정 |
-| 실험 관리 | MLflow (파라미터 버전 관리) |
+| 실험 관리 | MLflow v2.11.1 (파라미터 버전 관리) |
 | API 서버 | FastAPI |
+| 프론트엔드 | Next.js 15 + Zustand |
 | 크롤링 | requests.Session + BeautifulSoup4 (JS SPA AJAX 직접 호출) |
 | HWP 파싱 | pdfplumber, olefile |
+
+---
+
+## 10. 베타 테스트 현황 (2026-05-09)
+
+> **진행 중** — 내부 베타 테스트 1차 세션 완료
+
+| 항목 | 결과 |
+|---|---|
+| 매칭 API (`/api/v1/match`) | ✅ `matched_count: 3`, F/G/T 점수 정상 |
+| 프론트엔드 폼 | ✅ 재무·벤처·특허·회사명 입력 정상 |
+| ChromaDB 검색 | ✅ 통과 89건, 중복 제거 후 재인덱싱 완료 |
+| Gemini 피드백 | ✅ 중복 제거 후 정상 |
+| HWP 재파싱 | ✅ 11건 완료 (slno=9307/6730/5305 실패) |
+
+---
+
+## 11. 현재 제약사항
+
+> ⚠️ 아래 항목은 현재 제한이 있거나 구현 진행 중입니다.
+
+| 항목 | 상태 | 비고 |
+|---|---|---|
+| 수혜이력 데이터 | ❌ 비공개 처분 | 룰 기반 스코어링(`P = α·F + β·T + γ·G`)으로 대체. 이의신청 병행 중 |
+| T점수 (특허 IPC/최신성) | ⚠️ 부분 구현 | `patent_count` 직접 입력 또는 KIPRIS S3 폴백으로 동작. `ipc_codes`·`latest_patent_year` KIPRIS 연동 후 완전 활성화 |
+| 구 공고 필터링 | ⚠️ 미구현 | `apply_end`가 2026년 이전인 공고가 후보에 포함될 수 있음 |
+| KIPRIS 실제 데이터 수집 | ⚠️ 미실행 | Airflow DAG 재실행 필요 |
+| slno JOIN 실패 3건 | ⚠️ | slno=9307/6730/5305 재파싱 필요 |
+| MAS 에이전트 | ✅ 구현 완료 | LangGraph 오케스트레이터·임베딩·스코어링·SHAP 에이전트 |
+| FastAPI 서버 | ✅ 구현 완료 | `/api/v1/match`, `/api/v1/feedback/{program_id}` |
+| 챗봇 UI | ✅ 구현 완료 | Next.js + Zustand 기반 대화형 인터페이스 |
 
 ---
 

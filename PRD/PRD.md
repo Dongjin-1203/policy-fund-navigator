@@ -1,9 +1,10 @@
 # PRD — 중진공 AI 자금 네비게이터
 **policy-fund-navigator**
-버전: 1.0
+버전: 1.1
 작성일: 2026-05-07
+최종 수정: 2026-05-09 (베타 테스트 1차 세션 반영)
 작성자: 지동진
-상태: 완료
+상태: 베타 테스트 진행 중
 
 ---
 
@@ -75,8 +76,8 @@
 | 벤처기업 인증 | smes.go.kr | 배치 수집 + 주간 갱신 | 구현 예정 |
 | 이노비즈 인증 | innobiz.net | 배치 수집 + 주간 갱신 | 구현 예정 |
 | 사업 공고 목록 | 기업마당(bizinfo) | 배치 수집 | 완료 |
-| 공고문 원본 | 중진공 홈페이지 | 크롤러 | **완료 (2026-05-07 기준 14건 수집)** |
-| program_features.parquet | 병합·LLM 파싱 결과 | merge.py + processor.py | **80행, 54건 모집 중** |
+| 공고문 원본 | 중진공 홈페이지 | 크롤러 | **완료 (14건 수집, 11건 재파싱 완료)** |
+| program_features.parquet | 병합·LLM 파싱 결과 | merge.py + processor.py | **502행, program_id 0-indexed 정렬 완료** |
 
 > **[수혜이력 비공개 처분 관련]**
 > 중진공 정책자금 수혜이력 데이터가 「공공기관의 정보공개에 관한 법률」
@@ -253,7 +254,7 @@ P = α·F + β·T + γ·G
 | 임베딩 | ko-sentence-transformers (snunlp/KR-SBERT-V40K-klueNLI-augSTS) | 완료 |
 | 벡터 DB | ChromaDB | 완료 |
 | 스코어링 | 룰 기반 (α·F + β·T + γ·G) | 실데이터 확보 시 LightGBM 전환 예정 |
-| 실험 관리 | MLflow — Docker 서비스로 운영, scoring_params v1 등록 완료 | 완료 |
+| 실험 관리 | MLflow v2.11.1 — Docker 서비스로 운영, scoring_params v1 등록 완료 | 완료 |
 | XAI | 가중치 기여도 직접 계산 | 실데이터 확보 시 SHAP 전환 예정 |
 | MAS 프레임워크 | LangGraph | 완료 |
 | LLM API | Gemini 2.5-flash | 완료 |
@@ -320,7 +321,9 @@ s3://[BUCKET_NAME]/
 | 벤처·이노비즈 인증 | smes.go.kr, innobiz.net | 배치 수집 구현 예정 |
 | 신용등급 | KODATA 유료 | 추후 고도화 예정 |
 | 변경공고 파싱 실패 | 2026-287호 등 변경공고 processor.py 파싱 실패 | **팀원(박지윤) 확인 필요 — GovernmentNoticeLoader 예외 처리 보완 요청** |
-| apply_end 만료 | program_features.parquet의 apply_end가 과거 날짜인 경우 Hard Filter에서 전체 탈락 | apply_end 필터 로직 재검토 필요 (현재 54건 중 다수 만료) |
+| apply_end 만료 | program_features.parquet의 apply_end가 과거 날짜인 경우 Hard Filter에서 전체 탈락 | apply_end 필터 로직 재검토 필요 (2026년 이전 구 공고 필터링 미구현) |
+| slno JOIN 실패 3건 | slno=9307/6730/5305 requirements_db 미생성 | processor.py 재파싱 필요 |
+| KIPRIS 실제 데이터 미수집 | T점수 patent_count 직접 입력에만 의존 | Airflow KIPRIS DAG 재실행 필요 |
 
 ---
 
