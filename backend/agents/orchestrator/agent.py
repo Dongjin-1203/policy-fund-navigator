@@ -309,11 +309,23 @@ def _phase_dart_lookup(state: PolicyFundState) -> PolicyFundState:
     }
 
 
+def _dedup_ranked(ranked: list) -> list:
+    """program_id 기준 중복 제거. 순서(score 내림차순) 유지."""
+    seen: set[str] = set()
+    result = []
+    for p in ranked:
+        pid = str(p.get("program_id", ""))
+        if pid and pid not in seen:
+            seen.add(pid)
+            result.append(p)
+    return result
+
+
 def _phase_generate_feedback(state: PolicyFundState) -> PolicyFundState:
     """Phase 2: SHAP 완료 후 피드백 생성 및 최종 응답 조합."""
     company_id = state.get("company_id", "")
     company = state.get("company_features") or {}
-    ranked = state.get("ranked_programs") or []
+    ranked = _dedup_ranked(state.get("ranked_programs") or [])
     score_breakdown = state.get("score_breakdown") or {}
     improvable_features = state.get("improvable_features") or []
     delta_analysis = state.get("delta_analysis") or {}
