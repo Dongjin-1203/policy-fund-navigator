@@ -11,6 +11,7 @@ class FinancialData(BaseModel):
     cash_flow: Optional[float] = Field(None, description="영업활동 현금흐름 (원)")
     is_venture: Optional[bool] = Field(None, description="벤처기업 인증 여부 (financial_data 내 입력 허용)")
     is_innobiz: Optional[bool] = Field(None, description="이노비즈 인증 여부 (financial_data 내 입력 허용)")
+    patent_count: Optional[int] = Field(None, description="특허 보유수 (financial_data 내 입력 허용)")
 
 
 class MatchRequest(BaseModel):

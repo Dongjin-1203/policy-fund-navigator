@@ -39,11 +39,13 @@ def _build_initial_state(req: MatchRequest) -> dict:
             "net_income": fd.net_income,
             "cash_flow": fd.cash_flow,
         })
-        # financial_data 내 인증 필드가 명시적으로 입력된 경우 최상위 값을 덮어씀
+        # financial_data 내 인증/기술 필드가 명시적으로 입력된 경우 최상위 값을 덮어씀
         if fd.is_venture is not None:
             company_features["is_venture"] = fd.is_venture
         if fd.is_innobiz is not None:
             company_features["is_innobiz"] = fd.is_innobiz
+        if fd.patent_count is not None:
+            company_features["patent_count"] = fd.patent_count
 
     return {
         "company_id": req.company_id,

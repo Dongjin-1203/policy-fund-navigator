@@ -76,6 +76,8 @@ export interface FinancialData {
   business_age?: number
   is_venture: boolean
   is_innobiz: boolean
+  patent_count?: number
+  corp_name?: string
 }
 
 export type MessageType =

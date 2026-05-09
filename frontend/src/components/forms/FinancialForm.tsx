@@ -18,7 +18,10 @@ export default function FinancialForm() {
     const { name, value, type, checked } = e.target
     setForm((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value === '' ? undefined : Number(value),
+      [name]:
+        type === 'checkbox' ? checked
+        : type === 'text'   ? (value === '' ? undefined : value)
+        :                     (value === '' ? undefined : Number(value)),
     }))
   }
 
@@ -78,6 +81,19 @@ export default function FinancialForm() {
     </div>
   )
 
+  const textField = (label: string, name: keyof FinancialData, placeholder?: string) => (
+    <div className="flex items-center gap-2">
+      <label className="text-xs text-gray-600 w-28 shrink-0">{label}</label>
+      <input
+        type="text"
+        name={name as string}
+        onChange={handleChange}
+        placeholder={placeholder ?? ''}
+        className="flex-1 rounded border border-gray-200 px-2 py-1 text-xs focus:outline-none focus:border-blue-400"
+      />
+    </div>
+  )
+
   return (
     <form onSubmit={handleSubmit} className="space-y-3 text-sm">
       <p className="text-xs text-gray-500 mb-2">
@@ -100,6 +116,9 @@ export default function FinancialForm() {
           이노비즈
         </label>
       </div>
+
+      {textField('회사명', 'corp_name', '예) (주)테크스타트')}
+      {field('특허 보유수', 'patent_count', '건')}
 
       <button
         type="submit"

@@ -10,7 +10,12 @@ export async function matchCompany(
   financial_data?: FinancialData,
 ): Promise<MatchResponse> {
   const body: Record<string, unknown> = { company_id }
-  if (financial_data) body.financial_data = financial_data
+
+  if (financial_data) {
+    const { corp_name, ...fd } = financial_data
+    if (corp_name) body.corp_name = corp_name
+    body.financial_data = fd
+  }
 
   const { data } = await client.post<MatchResponse>('/api/v1/match', body)
   return data
