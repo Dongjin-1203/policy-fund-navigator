@@ -484,7 +484,7 @@ class ProgramFeatureMerger:
             multi = len(programs) > 1
 
             for i, prog in enumerate(programs):
-                pid = f'{slno}_{i + 1}' if multi else slno
+                pid = f'{slno}_{i}'  # 0-indexed — requirements_db / ChromaDB와 동일 포맷
                 rows.append({
                     'program_id': pid,
                     # 신 포맷: program_name / category, 구 포맷: sub_title / program_category

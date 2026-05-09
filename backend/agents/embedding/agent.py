@@ -259,6 +259,15 @@ def embedding_node(state: PolicyFundState) -> PolicyFundState:
     green_set = set(id(item) for item in green_items)
 
     # 4. 교집합 필터링 및 candidate_programs 변환
+    if hard_passed_ids is not None and (green_items or yellow_items):
+        chroma_ids = {str(item['meta_data'].get('program_id', '')) for item in green_items + yellow_items}
+        overlap = chroma_ids & hard_passed_ids
+        logger.info(
+            "intersection check: chroma=%d hard_filter=%d overlap=%d (sample_chroma=%s sample_hard=%s)",
+            len(chroma_ids), len(hard_passed_ids), len(overlap),
+            sorted(chroma_ids)[:3], sorted(hard_passed_ids)[:3],
+        )
+
     candidates = []
     for item in green_items + yellow_items:
         meta = item['meta_data']
