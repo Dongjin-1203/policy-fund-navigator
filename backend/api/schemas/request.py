@@ -9,6 +9,8 @@ class FinancialData(BaseModel):
     debt_ratio: Optional[float] = Field(None, description="부채비율 (%)")
     net_income: Optional[float] = Field(None, description="당기순이익 (원)")
     cash_flow: Optional[float] = Field(None, description="영업활동 현금흐름 (원)")
+    is_venture: Optional[bool] = Field(None, description="벤처기업 인증 여부 (financial_data 내 입력 허용)")
+    is_innobiz: Optional[bool] = Field(None, description="이노비즈 인증 여부 (financial_data 내 입력 허용)")
 
 
 class MatchRequest(BaseModel):
