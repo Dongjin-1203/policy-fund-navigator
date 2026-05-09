@@ -84,12 +84,14 @@ def hard_filter(company: dict, programs: list[dict]) -> list[dict]:
         fail = False
 
         # 업종 제한 체크
-        industry_limit = prog.get('industry_limit') or []
+        industry_limit = prog.get('industry_limit')
         if isinstance(industry_limit, str):
             try:
                 industry_limit = json.loads(industry_limit)
             except (json.JSONDecodeError, ValueError):
                 industry_limit = [industry_limit] if industry_limit else []
+        elif not isinstance(industry_limit, list):
+            industry_limit = []  # NaN, None, float 등 비정상값 처리
 
         for limit in industry_limit:
             limit_str = str(limit).strip()
